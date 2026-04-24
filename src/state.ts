@@ -33,6 +33,14 @@ export function setThemePreference(pref: ThemePreference): void {
 
 export const historyOpen = signal<boolean>(false);
 
+const SCROLL_LOCK_KEY = "differ.scrollLocked";
+const storedScrollLocked = localStorage.getItem(SCROLL_LOCK_KEY) !== "false";
+export const scrollLocked = signal<boolean>(storedScrollLocked);
+export function setScrollLocked(v: boolean): void {
+  scrollLocked.value = v;
+  localStorage.setItem(SCROLL_LOCK_KEY, String(v));
+}
+
 export interface HistoryEntry {
   id: string;
   createdAt: string;

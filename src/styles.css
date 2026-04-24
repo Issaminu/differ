@@ -247,18 +247,28 @@ body {
   overflow: hidden;
 }
 
-/* @codemirror/merge scrolls at the `.cm-mergeView` level (both panes scroll
-   together as one unit). We pin its height to #app so it becomes the
-   scrollable box; the panes and inner editors stay auto-height per the
-   library's expectations. */
+/* Per-pane fill-height + internal scroll (paired with the fillHeightTheme in
+   mergeView.ts). The outer .cm-mergeView fills #app; each pane fills its
+   share of the flex row; each .cm-scroller handles its own scroll. The
+   library auto-syncs scroll between the two panes. */
 #app > .cm-mergeView {
   position: absolute;
   inset: 0;
+  overflow: hidden;
+}
+
+.cm-mergeView,
+.cm-mergeViewEditors {
+  height: 100%;
+  min-height: 0;
 }
 
 .cm-mergeView .cm-merge-a,
 .cm-mergeView .cm-merge-b {
+  height: 100%;
   min-width: 0;
+  min-height: 0;
+  overflow: hidden;
 }
 
 /* Full-height separator between panes — drawn on #app (fixed viewport size)
@@ -279,10 +289,22 @@ body {
   font-family: var(--font-mono);
   font-size: 13px;
   background: transparent;
+  min-height: 0;
 }
 
 .cm-editor .cm-scroller {
   font-family: var(--font-mono);
+}
+
+/* Scroll-lock: only show the right pane's scrollbar; the left is driven via
+   sync so its native indicator would be redundant. */
+:root[data-scroll-locked="true"] .cm-mergeView .cm-merge-a .cm-scroller {
+  scrollbar-width: none;
+}
+:root[data-scroll-locked="true"] .cm-mergeView .cm-merge-a .cm-scroller::-webkit-scrollbar {
+  width: 0;
+  height: 0;
+  display: none;
 }
 
 .cm-editor .cm-gutters {
@@ -347,8 +369,10 @@ body {
 
 .cm-mergeView .cm-changeGutter .cm-changedLineGutter { background: transparent; }
 
-/* VSCode-style floating search widget.
-   The default CM panel is full-width; we pin ours to the top-right corner. */
+/* VSCode-style search widget.
+   Panels are flex children at the top of .cm-editor. We align to the right
+   with flex justify + padding and keep the container pointer-transparent so
+   the space next to the widget doesn't swallow clicks meant for the editor. */
 .cm-panels {
   background: transparent;
   color: var(--fg);
@@ -356,12 +380,13 @@ body {
 }
 .cm-panels.cm-panels-top {
   border: 0;
-  position: absolute;
-  top: 0;
-  right: 14px;
-  left: auto;
-  width: auto;
-  z-index: 6;
+  display: flex;
+  justify-content: flex-end;
+  padding: 0 14px 0 0;
+  pointer-events: none;
+}
+.cm-panels.cm-panels-top > * {
+  pointer-events: auto;
 }
 
 .cm-vs-search {

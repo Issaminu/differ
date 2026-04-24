@@ -4,6 +4,8 @@ import {
   manualLanguage,
   activeLanguage,
   detectedLanguage,
+  scrollLocked,
+  setScrollLocked,
   themePreference,
   setThemePreference,
   type ThemePreference,
@@ -27,6 +29,7 @@ export function mountToolbar(host: HTMLElement): void {
       </div>
     </div>
     <div class="tb-spacer" data-tauri-drag-region></div>
+    <button class="tb-btn" data-action="scroll-lock" aria-label="Lock scroll"></button>
     <div class="tb-theme">
       <button class="tb-btn tb-theme-trigger" data-action="theme" title="Theme" aria-haspopup="menu" aria-expanded="false"></button>
       <div class="tb-menu tb-theme-menu" role="menu" hidden>
@@ -44,6 +47,7 @@ export function mountToolbar(host: HTMLElement): void {
 
   const historyBtn = host.querySelector<HTMLButtonElement>('[data-action="history"]')!;
   const langBtn = host.querySelector<HTMLButtonElement>('[data-action="lang"]')!;
+  const scrollLockBtn = host.querySelector<HTMLButtonElement>('[data-action="scroll-lock"]')!;
   const langMenu = host.querySelector<HTMLDivElement>(".tb-lang-menu")!;
   const langSearch = host.querySelector<HTMLInputElement>(".tb-lang-search")!;
   const langList = host.querySelector<HTMLDivElement>(".tb-lang-list")!;
@@ -77,6 +81,22 @@ export function mountToolbar(host: HTMLElement): void {
 
   historyBtn.addEventListener("click", () => {
     historyOpen.value = !historyOpen.peek();
+  });
+
+  scrollLockBtn.addEventListener("click", () => {
+    setScrollLocked(!scrollLocked.peek());
+  });
+
+  const LOCK_CLOSED = `<svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="7" width="10" height="7" rx="1.5"/><path d="M5 7V5a3 3 0 0 1 6 0v2"/></svg>`;
+  const LOCK_OPEN = `<svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="7" width="10" height="7" rx="1.5"/><path d="M5 7V5a3 3 0 0 1 5.5-1.2"/></svg>`;
+
+  effect(() => {
+    const locked = scrollLocked.value;
+    scrollLockBtn.innerHTML = locked ? LOCK_CLOSED : LOCK_OPEN;
+    scrollLockBtn.title = locked ? "Scroll locked — both panes move together" : "Scroll unlocked — panes scroll independently";
+    scrollLockBtn.setAttribute("aria-label", locked ? "Scroll locked" : "Scroll unlocked");
+    scrollLockBtn.classList.toggle("primary", locked);
+    document.documentElement.dataset.scrollLocked = String(locked);
   });
 
   // Language menu: trigger label + checked-state + pick handler

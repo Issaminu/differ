@@ -7,7 +7,8 @@ import { closeBrackets, closeBracketsKeymap } from "@codemirror/autocomplete";
 import { search, searchKeymap } from "@codemirror/search";
 import { createSearchPanel } from "./searchPanel";
 
-import { originalText, modifiedText, themeMode } from "../state";
+import { effect } from "@preact/signals-core";
+import { originalText, modifiedText, themeMode, scrollLocked } from "../state";
 import { lightExtensions } from "../theme/light";
 import { darkExtensions } from "../theme/dark";
 import { loadLanguage } from "./languages";
@@ -21,11 +22,12 @@ function themeExt(mode: "light" | "dark"): Extension {
   return mode === "dark" ? darkExtensions : lightExtensions;
 }
 
-// No fill-height overrides. @codemirror/merge owns the layout: `.cm-mergeView`
-// is the scroller (its own theme sets overflow-y: auto), `.cm-mergeViewEditors`
-// is a flex row, and each pane/.cm-editor is auto-height so the outer scroller
-// can grow with content. Forcing `height: 100%` on the inner editor here made
-// everything fit exactly and scroll never triggered.
+// Per-pane fill-height + scroll: each pane's `.cm-scroller` becomes the actual
+// scroller (flex: 1) so the editor fills the viewport and search panels can
+// sit in the normal flex flow above the scroller. The merge library's base
+// theme forces `.cm-scroller` to `height: auto !important` + `overflow-y:
+// visible !important`, which loses only to *inline* `!important`. We apply
+// those inline after mount (see `forcePerPaneScroll`).
 
 interface MergeRef {
   view: MergeView | null;
@@ -83,6 +85,50 @@ function baseExtensions(
   ];
 }
 
+// Mirror vertical scroll between the two panes so diff lines stay aligned.
+// We break the feedback loop by remembering the value we *just set* on each
+// side — the echo scroll event will see its scrollTop already match and bail.
+// No frame-gating, so fast trackpad scrolls aren't dropped.
+function syncScroll(a: HTMLElement, b: HTMLElement): () => void {
+  let lastSetA = -1;
+  let lastSetB = -1;
+
+  const onA = () => {
+    if (a.scrollTop === lastSetA) return;
+    lastSetB = a.scrollTop;
+    b.scrollTop = a.scrollTop;
+  };
+  const onB = () => {
+    if (b.scrollTop === lastSetB) return;
+    lastSetA = b.scrollTop;
+    a.scrollTop = b.scrollTop;
+  };
+  a.addEventListener("scroll", onA, { passive: true });
+  b.addEventListener("scroll", onB, { passive: true });
+  return () => {
+    a.removeEventListener("scroll", onA);
+    b.removeEventListener("scroll", onB);
+  };
+}
+
+// Override the library's `height: auto !important` / `overflow-y: visible
+// !important` on the per-pane scroller. Inline !important is the only way to
+// beat an external !important with equal specificity + later source order.
+function forcePerPaneScroll(host: HTMLElement): void {
+  const editors = host.querySelectorAll<HTMLElement>(".cm-editor");
+  editors.forEach((el) => {
+    el.style.setProperty("height", "100%", "important");
+    el.style.minHeight = "0";
+  });
+  const scrollers = host.querySelectorAll<HTMLElement>(".cm-scroller");
+  scrollers.forEach((el) => {
+    el.style.setProperty("overflow", "auto", "important");
+    el.style.setProperty("height", "100%", "important");
+    el.style.minHeight = "0";
+    el.style.flex = "1 1 auto";
+  });
+}
+
 export interface MergeController {
   view: MergeView;
   setDocs: (a: string, b: string) => void;
@@ -112,6 +158,23 @@ export function mountMergeView(host: HTMLElement): MergeController {
   });
 
   ref.view = view;
+
+  forcePerPaneScroll(host);
+
+  // Attach/detach scroll sync based on the scrollLocked signal.
+  let stopScrollSync: (() => void) | null = null;
+  const disposeScrollLockEffect = effect(() => {
+    if (scrollLocked.value) {
+      if (!stopScrollSync) {
+        stopScrollSync = syncScroll(view.a.scrollDOM, view.b.scrollDOM);
+        // Align positions immediately so the non-leading pane catches up.
+        view.b.scrollDOM.scrollTop = view.a.scrollDOM.scrollTop;
+      }
+    } else if (stopScrollSync) {
+      stopScrollSync();
+      stopScrollSync = null;
+    }
+  });
 
   // Fn doesn't show up as a modifier in most keyboard events, so CM's
   // keymap parser can't bind "Fn-Tab". Intercept at the document level
@@ -160,6 +223,8 @@ export function mountMergeView(host: HTMLElement): MergeController {
 
   const destroy = () => {
     document.removeEventListener("keydown", onFnTab, true);
+    disposeScrollLockEffect();
+    stopScrollSync?.();
     view.destroy();
   };
 
