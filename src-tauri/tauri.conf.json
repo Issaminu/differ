@@ -25,6 +25,7 @@
         "trafficLightPosition": { "x": 20, "y": 24 },
         "transparent": true,
         "decorations": true,
+        "acceptFirstMouse": true,
         "windowEffects": {
           "effects": ["sidebar"],
           "state": "followsWindowActiveState"
