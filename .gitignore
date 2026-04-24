@@ -1,0 +1,24 @@
+## macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+
+## Node / bun
+node_modules/
+bun-debug.log*
+.bun-cache/
+
+## Vite
+dist/
+.vite/
+
+## Tauri / Rust
+src-tauri/target/
+src-tauri/gen/
+
+## Editors
+*.swp
+.idea/
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.json

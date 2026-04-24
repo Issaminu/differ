@@ -1,0 +1,395 @@
+:root {
+  --bg: #f6f6f7;
+  --bg-elevated: rgba(255, 255, 255, 0.72);
+  --bg-glass: rgba(255, 255, 255, 0.55);
+  --border: rgba(0, 0, 0, 0.12);
+  --border-strong: rgba(0, 0, 0, 0.22);
+  --fg: #1a1a1a;
+  --fg-muted: rgba(26, 26, 26, 0.82);
+  --fg-subtle: rgba(26, 26, 26, 0.72);
+  --accent: #3468ff;
+  --add-bg: rgba(46, 160, 67, 0.14);
+  --add-bg-strong: rgba(46, 160, 67, 0.26);
+  --del-bg: rgba(248, 81, 73, 0.14);
+  --del-bg-strong: rgba(248, 81, 73, 0.28);
+  --chrome-height: 44px;
+  --font-mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  --font-ui: -apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", Helvetica, Arial, sans-serif;
+  color-scheme: light;
+}
+
+:root[data-theme="dark"] {
+  --bg: #0f1115;
+  --bg-elevated: rgba(26, 28, 34, 0.72);
+  --bg-glass: rgba(18, 20, 26, 0.6);
+  --border: rgba(255, 255, 255, 0.08);
+  --border-strong: rgba(255, 255, 255, 0.16);
+  --fg: #e6e6e8;
+  --fg-muted: rgba(230, 230, 232, 0.62);
+  --fg-subtle: rgba(230, 230, 232, 0.42);
+  --accent: #5b86ff;
+  --add-bg: rgba(63, 185, 80, 0.16);
+  --add-bg-strong: rgba(63, 185, 80, 0.32);
+  --del-bg: rgba(248, 81, 73, 0.18);
+  --del-bg-strong: rgba(248, 81, 73, 0.34);
+  color-scheme: dark;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html, body {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+  background: transparent;
+  color: var(--fg);
+  font-family: var(--font-ui);
+  -webkit-font-smoothing: antialiased;
+  overflow: hidden;
+}
+
+/* Window has an NSVisualEffectView (sidebar material) applied by Tauri.
+   The native blur shows the wallpaper through a bit too strongly, so we
+   layer a tinted overlay + extra backdrop blur on body to heavy it up
+   while keeping the wallpaper-sampling feel. */
+body {
+  background: rgba(245, 245, 247, 0.55);
+  backdrop-filter: blur(40px) saturate(160%);
+  -webkit-backdrop-filter: blur(40px) saturate(160%);
+}
+
+:root[data-theme="dark"] body {
+  background: rgba(12, 13, 16, 0.55);
+}
+
+#chrome {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: var(--chrome-height);
+  padding: 6px 12px 6px 84px; /* leave room for macOS traffic lights */
+  display: flex;
+  align-items: center;
+  z-index: 10;
+  /* No own background — the body's tinted material shows through so the
+     chrome reads as one continuous mica surface with the content. */
+  background: transparent;
+  border-bottom: 1px solid var(--border);
+  -webkit-app-region: drag;
+}
+
+#toolbar {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* Extra breathing room from the traffic lights */
+#toolbar > :first-child {
+  margin-left: 12px;
+}
+
+.tb-btn {
+  appearance: none;
+  border: 1px solid var(--border);
+  background: var(--bg-elevated);
+  color: var(--fg);
+  font: 500 12px/1 var(--font-ui);
+  padding: 6px 10px;
+  border-radius: 8px;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  transition: background 80ms ease, border-color 80ms ease;
+  -webkit-app-region: no-drag;
+}
+
+.tb-btn:hover { background: var(--bg-elevated); border-color: var(--border-strong); }
+.tb-btn:active { transform: translateY(0.5px); }
+.tb-btn.primary { background: var(--accent); border-color: transparent; color: white; }
+.tb-btn.ghost { background: transparent; }
+.tb-spacer { flex: 1; }
+
+.tb-theme,
+.tb-lang {
+  position: relative;
+  -webkit-app-region: no-drag;
+}
+.tb-theme-trigger { padding: 6px 8px; }
+.tb-lang-trigger { padding: 6px 8px; font-variant-numeric: tabular-nums; }
+
+.tb-menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  min-width: 140px;
+  max-height: 320px;
+  overflow-y: auto;
+  background: var(--bg-elevated);
+  backdrop-filter: blur(30px) saturate(180%);
+  -webkit-backdrop-filter: blur(30px) saturate(180%);
+  border: 1px solid var(--border-strong);
+  border-radius: 10px;
+  padding: 4px;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.18);
+  z-index: 11;
+}
+.tb-menu[hidden] { display: none; }
+.tb-theme-menu { right: 0; }
+.tb-lang-menu { left: 0; }
+
+.tb-menu button {
+  appearance: none;
+  background: transparent;
+  border: 0;
+  color: var(--fg);
+  font: 500 12px var(--font-ui);
+  padding: 6px 10px;
+  border-radius: 6px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  white-space: nowrap;
+}
+.tb-menu button:hover { background: var(--border); }
+.tb-menu button.active::after {
+  content: "✓";
+  color: var(--fg-muted);
+  font-weight: 600;
+}
+
+
+#app {
+  position: absolute;
+  top: var(--chrome-height);
+  left: 0;
+  right: 0;
+  bottom: 0;
+  overflow: hidden;
+}
+
+#app > .cm-mergeView {
+  position: absolute;
+  inset: 0;
+}
+
+.cm-mergeView,
+.cm-mergeViewEditors {
+  height: 100%;
+  min-height: 0;
+}
+
+.cm-mergeView .cm-merge-a,
+.cm-mergeView .cm-merge-b {
+  height: 100%;
+  min-width: 0;
+  overflow: hidden;
+}
+
+/* Full-height separator between panes — drawn on the container as a
+   pseudo-element so it doesn't stop at the last line of content. */
+.cm-mergeViewEditors {
+  position: relative;
+}
+.cm-mergeViewEditors::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 50%;
+  width: 1px;
+  background: var(--border);
+  pointer-events: none;
+}
+
+.cm-editor {
+  height: 100%;
+  font-family: var(--font-mono);
+  font-size: 13px;
+  background: transparent;
+}
+
+.cm-editor .cm-scroller {
+  font-family: var(--font-mono);
+  overflow: auto;
+}
+
+.cm-editor .cm-gutters {
+  background: transparent;
+  border-right: 0;
+  color: var(--fg-subtle);
+}
+
+.cm-editor.cm-focused {
+  outline: none;
+}
+
+.cm-editor.cm-focused .cm-activeLineGutter,
+.cm-editor.cm-focused .cm-activeLine {
+  background: rgba(0, 0, 0, 0.03);
+}
+
+:root[data-theme="dark"] .cm-editor.cm-focused .cm-activeLineGutter,
+:root[data-theme="dark"] .cm-editor.cm-focused .cm-activeLine {
+  background: rgba(255, 255, 255, 0.04);
+}
+
+/* Never show the active-line highlight or cursor on the unfocused pane —
+   otherwise you get a "ghost" cursor and a highlighted line on the side
+   you just left. */
+.cm-editor:not(.cm-focused) .cm-activeLine,
+.cm-editor:not(.cm-focused) .cm-activeLineGutter {
+  background: transparent !important;
+}
+
+.cm-editor:not(.cm-focused) .cm-cursor,
+.cm-editor:not(.cm-focused) .cm-cursor-primary,
+.cm-editor:not(.cm-focused) .cm-dropCursor,
+.cm-editor:not(.cm-focused) .cm-cursorLayer,
+.cm-editor:not(.cm-focused) .cm-selectionLayer {
+  display: none !important;
+}
+
+/* Kill cursor blink — the CSS animation leaves a visual trail when the
+   cursor moves during the fade, which reads as a "ghost" at the old
+   position when you type fast. A steady cursor is fine. */
+.cm-editor .cm-cursor,
+.cm-editor .cm-cursor-primary {
+  animation: none !important;
+  opacity: 1 !important;
+}
+
+/* Diff highlighting: only the changed characters are tinted, not whole lines.
+   Left pane (a, original) uses red; right pane (b, modified) uses green.
+   Deleted/inserted-only chunks keep their placeholder tint since there's no
+   character-level highlight to fall back on. */
+
+.cm-changedLine { background: transparent !important; }
+
+.cm-mergeView .cm-merge-a .cm-changedText { background: var(--del-bg-strong); }
+.cm-mergeView .cm-merge-b .cm-changedText { background: var(--add-bg-strong); }
+
+.cm-mergeView .cm-merge-a .cm-deletedChunk { background: var(--del-bg); }
+.cm-mergeView .cm-merge-b .cm-deletedChunk { background: var(--add-bg); }
+.cm-mergeView .cm-merge-a .cm-deletedChunk .cm-deletedText { background: var(--del-bg-strong); }
+.cm-mergeView .cm-merge-b .cm-deletedChunk .cm-deletedText { background: var(--add-bg-strong); }
+
+.cm-mergeView .cm-changeGutter .cm-changedLineGutter { background: transparent; }
+
+#history-drawer {
+  position: fixed;
+  top: var(--chrome-height);
+  right: 0;
+  bottom: 0;
+  width: 340px;
+  background: var(--bg-glass);
+  backdrop-filter: blur(30px) saturate(180%);
+  -webkit-backdrop-filter: blur(30px) saturate(180%);
+  border-left: 1px solid var(--border);
+  transform: translateX(100%);
+  transition: transform 220ms cubic-bezier(0.2, 0.7, 0.1, 1);
+  z-index: 9;
+  display: flex;
+  flex-direction: column;
+}
+
+#history-drawer.open { transform: translateX(0); }
+
+.hd-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--border);
+}
+
+.hd-title {
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--fg-muted);
+}
+
+.hd-list {
+  flex: 1;
+  overflow-y: auto;
+  padding: 6px;
+}
+
+.hd-row {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  cursor: pointer;
+  position: relative;
+}
+.hd-row:hover { background: var(--bg-elevated); }
+.hd-row .hd-preview {
+  font: 500 12px var(--font-mono);
+  color: var(--fg);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.hd-row .hd-meta {
+  font: 500 10px var(--font-ui);
+  color: var(--fg-subtle);
+  display: flex;
+  gap: 8px;
+}
+.hd-row .hd-delete {
+  position: absolute;
+  top: 4px; right: 4px;
+  appearance: none;
+  background: transparent;
+  border: 0;
+  color: var(--fg-subtle);
+  font-size: 14px;
+  width: 22px; height: 22px;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  border-radius: 6px;
+  cursor: pointer;
+}
+.hd-row:hover .hd-delete { display: inline-flex; }
+.hd-row .hd-delete:hover { background: var(--del-bg-strong); color: var(--fg); }
+
+.hd-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  color: var(--fg-subtle);
+  font-size: 13px;
+}
+
+.toast {
+  position: fixed;
+  bottom: 24px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-strong);
+  padding: 8px 14px;
+  border-radius: 10px;
+  font: 500 12px var(--font-ui);
+  color: var(--fg);
+  z-index: 20;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 160ms ease;
+}
+.toast.show { opacity: 1; }
