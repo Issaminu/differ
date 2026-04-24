@@ -85,21 +85,65 @@ function baseExtensions(
   ];
 }
 
+// Pad the shorter pane's .cm-content with bottom padding so both panes have
+// the same scrollable height. The comparison-against-current-padding keeps
+// this stable (no ResizeObserver loop once the padding is correct).
+function equalizePaneHeights(
+  aScroll: HTMLElement,
+  bScroll: HTMLElement,
+): () => void {
+  const contentA = aScroll.querySelector<HTMLElement>(".cm-content");
+  const contentB = bScroll.querySelector<HTMLElement>(".cm-content");
+  if (!contentA || !contentB) return () => {};
+
+  const equalize = () => {
+    const aPad = parseFloat(contentA.style.paddingBottom) || 0;
+    const bPad = parseFloat(contentB.style.paddingBottom) || 0;
+    const aNat = contentA.offsetHeight - aPad;
+    const bNat = contentB.offsetHeight - bPad;
+    const target = Math.max(aNat, bNat);
+    const newAPad = Math.max(0, target - aNat);
+    const newBPad = Math.max(0, target - bNat);
+    if (Math.round(newAPad) !== Math.round(aPad)) {
+      contentA.style.paddingBottom = newAPad > 0 ? `${newAPad}px` : "";
+    }
+    if (Math.round(newBPad) !== Math.round(bPad)) {
+      contentB.style.paddingBottom = newBPad > 0 ? `${newBPad}px` : "";
+    }
+  };
+
+  const ro = new ResizeObserver(equalize);
+  ro.observe(contentA);
+  ro.observe(contentB);
+  equalize();
+
+  return () => ro.disconnect();
+}
+
 // Mirror vertical scroll between the two panes so diff lines stay aligned.
 // We break the feedback loop by remembering the value we *just set* on each
 // side — the echo scroll event will see its scrollTop already match and bail.
-// No frame-gating, so fast trackpad scrolls aren't dropped.
+// A set past the target's max is clamped by the browser; we also treat that
+// as an echo, otherwise the clamped value would propagate back to the source
+// and drag the user's scroll back whenever the shorter side hit its max.
 function syncScroll(a: HTMLElement, b: HTMLElement): () => void {
   let lastSetA = -1;
   let lastSetB = -1;
 
+  const isEcho = (self: HTMLElement, lastSet: number): boolean => {
+    if (lastSet < 0) return false;
+    if (self.scrollTop === lastSet) return true;
+    const max = self.scrollHeight - self.clientHeight;
+    return lastSet > max && Math.abs(self.scrollTop - max) <= 1;
+  };
+
   const onA = () => {
-    if (a.scrollTop === lastSetA) return;
+    if (isEcho(a, lastSetA)) return;
     lastSetB = a.scrollTop;
     b.scrollTop = a.scrollTop;
   };
   const onB = () => {
-    if (b.scrollTop === lastSetB) return;
+    if (isEcho(b, lastSetB)) return;
     lastSetA = b.scrollTop;
     a.scrollTop = b.scrollTop;
   };
@@ -160,6 +204,7 @@ export function mountMergeView(host: HTMLElement): MergeController {
   ref.view = view;
 
   forcePerPaneScroll(host);
+  const stopEqualize = equalizePaneHeights(view.a.scrollDOM, view.b.scrollDOM);
 
   // Attach/detach scroll sync based on the scrollLocked signal.
   let stopScrollSync: (() => void) | null = null;
@@ -225,6 +270,7 @@ export function mountMergeView(host: HTMLElement): MergeController {
     document.removeEventListener("keydown", onFnTab, true);
     disposeScrollLockEffect();
     stopScrollSync?.();
+    stopEqualize();
     view.destroy();
   };
 
