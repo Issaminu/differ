@@ -13,8 +13,9 @@ export function installShortcuts(): () => void {
   const onKeyDown = (e: KeyboardEvent) => {
     if (!isMetaOrCtrl(e)) return;
 
-    // ⌘H — toggle history
-    if (e.key.toLowerCase() === "h" && !e.shiftKey && !e.altKey) {
+    // ⌘H or ⌘B — toggle history
+    const k = e.key.toLowerCase();
+    if ((k === "h" || k === "b") && !e.shiftKey && !e.altKey) {
       e.preventDefault();
       historyOpen.value = !historyOpen.peek();
       return;

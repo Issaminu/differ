@@ -19,11 +19,10 @@ const THEME_ICON: Record<ThemePreference, string> = {
 
 export function mountToolbar(host: HTMLElement): void {
   host.innerHTML = `
-    <button class="tb-btn" data-action="swap" title="Swap sides (⌘⇧S)">
+    <button class="tb-btn" data-action="swap" title="Swap sides (⌘⇧S)" aria-label="Swap sides">
       <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
         <path d="M3 5h9M3 5l3-3M3 5l3 3M13 11H4M13 11l-3-3M13 11l-3 3"/>
       </svg>
-      Swap
     </button>
     <div class="tb-lang">
       <button class="tb-btn tb-lang-trigger" data-action="lang" aria-haspopup="menu" aria-expanded="false"></button>
@@ -38,11 +37,10 @@ export function mountToolbar(host: HTMLElement): void {
         <button role="menuitemradio" data-pref="dark">Dark</button>
       </div>
     </div>
-    <button class="tb-btn" data-action="history" title="History (⌘H)">
+    <button class="tb-btn" data-action="history" title="History (⌘H)" aria-label="History">
       <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
         <circle cx="8" cy="8" r="6"/><path d="M8 4v4l2.5 2.5"/>
       </svg>
-      History
     </button>
   `;
 

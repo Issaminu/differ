@@ -111,7 +111,13 @@ body {
 
 .tb-btn:hover { background: var(--bg-elevated); border-color: var(--border-strong); }
 .tb-btn:active { transform: translateY(0.5px); }
-.tb-btn.primary { background: var(--accent); border-color: transparent; color: white; }
+.tb-btn.primary {
+  background: rgba(0, 0, 0, 0.1);
+  border-color: var(--border-strong);
+}
+:root[data-theme="dark"] .tb-btn.primary {
+  background: rgba(255, 255, 255, 0.12);
+}
 .tb-btn.ghost { background: transparent; }
 .tb-spacer { flex: 1; }
 
