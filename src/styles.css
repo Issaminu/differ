@@ -347,99 +347,146 @@ body {
 
 .cm-mergeView .cm-changeGutter .cm-changedLineGutter { background: transparent; }
 
-/* Search panel (⌘F) — override the library's minimal grey box. */
+/* VSCode-style floating search widget.
+   The default CM panel is full-width; we pin ours to the top-right corner. */
 .cm-panels {
-  background: var(--bg-opaque);
+  background: transparent;
   color: var(--fg);
-  border-top: 1px solid var(--border);
   font-family: var(--font-ui);
 }
 .cm-panels.cm-panels-top {
-  border-top: 0;
-  border-bottom: 1px solid var(--border);
+  border: 0;
+  position: absolute;
+  top: 0;
+  right: 14px;
+  left: auto;
+  width: auto;
+  z-index: 6;
 }
 
-.cm-search {
+.cm-vs-search {
   display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 6px;
-  padding: 8px 10px;
-}
-
-.cm-search .cm-textfield {
-  appearance: none;
+  align-items: flex-start;
+  gap: 2px;
+  padding: 4px 4px 4px 2px;
+  background: var(--bg-opaque);
   border: 1px solid var(--border);
-  background: var(--bg-elevated);
-  color: var(--fg);
-  font: 500 12px var(--font-ui);
-  padding: 6px 8px;
-  border-radius: 6px;
-  outline: none;
-  min-width: 160px;
-  transition: border-color 80ms ease;
-}
-.cm-search .cm-textfield:focus {
-  border-color: var(--border-strong);
-}
-.cm-search .cm-textfield::placeholder {
-  color: var(--fg-subtle);
+  border-top: 0;
+  border-radius: 0 0 4px 4px;
+  box-shadow: 0 3px 8px rgba(0, 0, 0, 0.16);
 }
 
-.cm-search .cm-button {
-  appearance: none;
-  border: 1px solid var(--border);
-  background: var(--bg-elevated);
-  color: var(--fg);
-  font: 500 12px var(--font-ui);
-  padding: 6px 10px;
-  border-radius: 6px;
-  cursor: pointer;
-  background-image: none;
-  text-transform: none;
-  transition: background 80ms ease, border-color 80ms ease;
-}
-.cm-search .cm-button:hover {
-  border-color: var(--border-strong);
-}
-.cm-search .cm-button:active {
-  transform: translateY(0.5px);
-}
-
-.cm-search label {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  font: 500 12px var(--font-ui);
-  color: var(--fg-muted);
-  cursor: pointer;
-  user-select: none;
-}
-.cm-search label input[type="checkbox"] {
-  accent-color: var(--fg);
-  cursor: pointer;
-}
-
-.cm-search [name="close"] {
+.cm-vs-chevron {
+  flex: 0 0 auto;
+  width: 20px;
+  align-self: stretch;
   appearance: none;
   background: transparent;
   border: 0;
   color: var(--fg-subtle);
-  font-size: 16px;
-  line-height: 1;
-  width: 24px;
-  height: 24px;
-  margin-left: auto;
-  border-radius: 6px;
+  cursor: pointer;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 3px;
+}
+.cm-vs-chevron svg { width: 14px; height: 14px; }
+.cm-vs-chevron:hover { background: var(--border); color: var(--fg); }
+
+.cm-vs-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.cm-vs-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.cm-vs-row[hidden] { display: none; }
+
+.cm-vs-field {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  padding: 0 2px 0 6px;
+  min-width: 260px;
+  transition: border-color 80ms ease;
+}
+.cm-vs-field:focus-within { border-color: var(--accent); }
+
+.cm-vs-input {
+  flex: 1 1 auto;
+  appearance: none;
+  border: 0;
+  background: transparent;
+  color: var(--fg);
+  font: 500 12px var(--font-ui);
+  padding: 4px 2px;
+  outline: none;
+  min-width: 0;
+}
+.cm-vs-input::placeholder { color: var(--fg-subtle); }
+
+.cm-vs-options {
+  display: flex;
+  align-items: center;
+  gap: 1px;
+  flex: 0 0 auto;
+}
+
+.cm-vs-toggle {
+  appearance: none;
+  background: transparent;
+  border: 0;
+  color: var(--fg-subtle);
+  font: 600 10.5px var(--font-mono);
+  width: 22px;
+  height: 22px;
+  border-radius: 3px;
   cursor: pointer;
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  padding: 0;
 }
-.cm-search [name="close"]:hover {
-  background: var(--border);
+.cm-vs-toggle:hover { background: var(--border); color: var(--fg); }
+.cm-vs-toggle[aria-pressed="true"] {
+  background: rgba(52, 104, 255, 0.18);
   color: var(--fg);
+  outline: 1px solid rgba(52, 104, 255, 0.55);
 }
+.cm-vs-word { text-decoration: underline; text-underline-offset: 1px; }
+
+.cm-vs-actions {
+  display: flex;
+  align-items: center;
+  gap: 1px;
+  flex: 0 0 auto;
+}
+
+.cm-vs-icon {
+  appearance: none;
+  background: transparent;
+  border: 0;
+  color: var(--fg-subtle);
+  width: 22px;
+  height: 22px;
+  border-radius: 3px;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+}
+.cm-vs-icon svg { width: 14px; height: 14px; }
+.cm-vs-icon:hover { background: var(--border); color: var(--fg); }
 
 /* In-editor match highlight. */
 .cm-editor .cm-searchMatch {

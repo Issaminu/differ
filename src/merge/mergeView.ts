@@ -4,7 +4,8 @@ import { EditorView, lineNumbers, highlightActiveLine, highlightActiveLineGutter
 import { history, defaultKeymap, historyKeymap, insertTab, indentLess } from "@codemirror/commands";
 import { bracketMatching } from "@codemirror/language";
 import { closeBrackets, closeBracketsKeymap } from "@codemirror/autocomplete";
-import { searchKeymap } from "@codemirror/search";
+import { search, searchKeymap } from "@codemirror/search";
+import { createSearchPanel } from "./searchPanel";
 
 import { originalText, modifiedText, themeMode } from "../state";
 import { lightExtensions } from "../theme/light";
@@ -58,6 +59,7 @@ function baseExtensions(
     bracketMatching(),
     closeBrackets(),
     history(),
+    search({ createPanel: createSearchPanel, top: true }),
     keymap.of([
       { key: "Ctrl-Tab", run: switchRun, shift: switchRun, preventDefault: true },
       { key: "Tab", run: insertTab, shift: indentLess },
