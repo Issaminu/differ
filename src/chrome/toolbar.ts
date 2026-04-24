@@ -38,7 +38,7 @@ export function mountToolbar(host: HTMLElement): void {
         <button role="menuitemradio" data-pref="dark">Dark</button>
       </div>
     </div>
-    <button class="tb-btn" data-action="history" title="History (⌘H)" aria-label="History">
+    <button class="tb-btn" data-action="history" title="History (⌘B)" aria-label="History">
       <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
         <circle cx="8" cy="8" r="6"/><path d="M8 4v4l2.5 2.5"/>
       </svg>
@@ -95,7 +95,6 @@ export function mountToolbar(host: HTMLElement): void {
     scrollLockBtn.innerHTML = locked ? LOCK_CLOSED : LOCK_OPEN;
     scrollLockBtn.title = locked ? "Scroll locked — both panes move together" : "Scroll unlocked — panes scroll independently";
     scrollLockBtn.setAttribute("aria-label", locked ? "Scroll locked" : "Scroll unlocked");
-    scrollLockBtn.classList.toggle("primary", locked);
     document.documentElement.dataset.scrollLocked = String(locked);
   });
 
