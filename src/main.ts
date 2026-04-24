@@ -13,6 +13,7 @@ import {
 } from "./state";
 import { mountMergeView, type MergeController } from "./merge/mergeView";
 import { detectLanguage } from "./merge/languageDetect";
+import { mountSwapHover } from "./merge/swapHover";
 import { mountToolbar } from "./chrome/toolbar";
 import { installShortcuts } from "./chrome/shortcuts";
 import { mountHistoryDrawer } from "./history/drawer";
@@ -24,6 +25,7 @@ async function main(): Promise<void> {
   const drawerHost = document.getElementById("history-drawer")!;
 
   const merge = mountMergeView(appHost);
+  mountSwapHover(appHost);
   mountToolbar(toolbarHost);
   mountHistoryDrawer(drawerHost);
   installShortcuts();

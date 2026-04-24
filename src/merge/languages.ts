@@ -8,10 +8,105 @@ for (const lang of cmLanguages) {
   for (const alias of lang.alias) byName.set(alias.toLowerCase(), lang);
 }
 
-export function availableLanguages(): { id: string; label: string }[] {
-  return cmLanguages
-    .map((l) => ({ id: l.name.toLowerCase(), label: l.name }))
-    .sort((a, b) => a.label.localeCompare(b.label));
+// Curated list tracking VSCode's built-in languages + a few of its most
+// commonly-installed extensions (Vue, Svelte, Kotlin, Scala, Terraform, ...).
+// Keeps the picker digestible — CodeMirror's language-data ships a lot of
+// esoteric grammars (Brainfuck, Forth, Yacas, APL, ...) we don't want here.
+const VSCODE_WHITELIST = new Set([
+  "c",
+  "c++",
+  "c#",
+  "clojure",
+  "coffeescript",
+  "css",
+  "dart",
+  "dockerfile",
+  "elixir",
+  "elm",
+  "erlang",
+  "f#",
+  "go",
+  "groovy",
+  "haskell",
+  "haxe",
+  "html",
+  "java",
+  "javascript",
+  "jsx",
+  "json",
+  "julia",
+  "kotlin",
+  "latex",
+  "less",
+  "livescript",
+  "lua",
+  "markdown",
+  "mariadb sql",
+  "mssql",
+  "mysql",
+  "nginx",
+  "nim",
+  "objective-c",
+  "ocaml",
+  "pascal",
+  "perl",
+  "php",
+  "plsql",
+  "postgresql",
+  "powershell",
+  "pug",
+  "python",
+  "r",
+  "ruby",
+  "rust",
+  "sass",
+  "scala",
+  "scheme",
+  "scss",
+  "shell",
+  "solidity",
+  "sql",
+  "sqlite",
+  "stylus",
+  "svelte",
+  "swift",
+  "tex",
+  "bibtex",
+  "toml",
+  "typescript",
+  "tsx",
+  "vb.net",
+  "vbscript",
+  "vue",
+  "webassembly",
+  "xml",
+  "yaml",
+]);
+
+export interface LanguageEntry {
+  id: string;
+  label: string;
+  extensions: readonly string[];
+}
+
+// Custom entries for file types that don't have a CodeMirror grammar of their
+// own but are worth surfacing in the picker (they'll fall back to plaintext
+// highlighting).
+const CUSTOM_ENTRIES: LanguageEntry[] = [
+  { id: ".env", label: "Env", extensions: ["env"] },
+];
+
+export function availableLanguages(): LanguageEntry[] {
+  const fromCm = cmLanguages
+    .filter((l) => VSCODE_WHITELIST.has(l.name.toLowerCase()))
+    .map((l) => ({
+      id: l.name.toLowerCase(),
+      label: l.name,
+      extensions: l.extensions,
+    }));
+  return [...fromCm, ...CUSTOM_ENTRIES].sort((a, b) =>
+    a.label.localeCompare(b.label),
+  );
 }
 
 export function findLanguage(id: LanguageId): LanguageDescription | null {

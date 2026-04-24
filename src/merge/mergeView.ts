@@ -4,7 +4,7 @@ import { EditorView, lineNumbers, highlightActiveLine, highlightActiveLineGutter
 import { history, defaultKeymap, historyKeymap, insertTab, indentLess } from "@codemirror/commands";
 import { bracketMatching } from "@codemirror/language";
 import { closeBrackets, closeBracketsKeymap } from "@codemirror/autocomplete";
-import { searchKeymap, highlightSelectionMatches } from "@codemirror/search";
+import { searchKeymap } from "@codemirror/search";
 
 import { originalText, modifiedText, themeMode } from "../state";
 import { lightExtensions } from "../theme/light";
@@ -20,12 +20,11 @@ function themeExt(mode: "light" | "dark"): Extension {
   return mode === "dark" ? darkExtensions : lightExtensions;
 }
 
-// Fill-height theme: without this, CodeMirror 6 auto-sizes to content and
-// the editor looks one-line tall when dropped into a flex container.
-const fillHeightTheme = EditorView.theme({
-  "&": { height: "100%" },
-  ".cm-scroller": { overflow: "auto" },
-});
+// No fill-height overrides. @codemirror/merge owns the layout: `.cm-mergeView`
+// is the scroller (its own theme sets overflow-y: auto), `.cm-mergeViewEditors`
+// is a flex row, and each pane/.cm-editor is auto-height so the outer scroller
+// can grow with content. Forcing `height: 100%` on the inner editor here made
+// everything fit exactly and scroll never triggered.
 
 interface MergeRef {
   view: MergeView | null;
@@ -59,7 +58,6 @@ function baseExtensions(
     bracketMatching(),
     closeBrackets(),
     history(),
-    highlightSelectionMatches(),
     keymap.of([
       { key: "Ctrl-Tab", run: switchRun, shift: switchRun, preventDefault: true },
       { key: "Tab", run: insertTab, shift: indentLess },
@@ -68,7 +66,6 @@ function baseExtensions(
       ...searchKeymap,
       ...historyKeymap,
     ]),
-    fillHeightTheme,
     EditorView.lineWrapping,
     themeComp.of(themeExt(mode)),
     langComp.of([]),

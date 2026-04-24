@@ -2,6 +2,7 @@
   --bg: #f6f6f7;
   --bg-elevated: rgba(255, 255, 255, 0.72);
   --bg-glass: rgba(255, 255, 255, 0.55);
+  --bg-opaque: #fafafc;
   --border: rgba(0, 0, 0, 0.12);
   --border-strong: rgba(0, 0, 0, 0.22);
   --fg: #1a1a1a;
@@ -22,6 +23,7 @@
   --bg: #0f1115;
   --bg-elevated: rgba(26, 28, 34, 0.72);
   --bg-glass: rgba(18, 20, 26, 0.6);
+  --bg-opaque: #15171c;
   --border: rgba(255, 255, 255, 0.08);
   --border-strong: rgba(255, 255, 255, 0.16);
   --fg: #e6e6e8;
@@ -55,7 +57,7 @@ html, body {
    layer a tinted overlay + extra backdrop blur on body to heavy it up
    while keeping the wallpaper-sampling feel. */
 body {
-  background: rgba(245, 245, 247, 0.55);
+  background: rgba(250, 250, 252, 0.92);
   backdrop-filter: blur(40px) saturate(160%);
   -webkit-backdrop-filter: blur(40px) saturate(160%);
 }
@@ -135,9 +137,7 @@ body {
   min-width: 140px;
   max-height: 320px;
   overflow-y: auto;
-  background: var(--bg-elevated);
-  backdrop-filter: blur(30px) saturate(180%);
-  -webkit-backdrop-filter: blur(30px) saturate(180%);
+  background: var(--bg-opaque);
   border: 1px solid var(--border-strong);
   border-radius: 10px;
   padding: 4px;
@@ -149,7 +149,70 @@ body {
 }
 .tb-menu[hidden] { display: none; }
 .tb-theme-menu { right: 0; }
-.tb-lang-menu { left: 0; }
+.tb-lang-menu {
+  left: 0;
+  min-width: 200px;
+  padding: 6px;
+  gap: 4px;
+  overflow: hidden;
+}
+
+.tb-lang-search {
+  appearance: none;
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--fg);
+  font: 500 12px var(--font-ui);
+  padding: 6px 8px;
+  border-radius: 6px;
+  outline: none;
+  flex: 0 0 auto;
+}
+.tb-lang-search:focus {
+  border-color: var(--border-strong);
+}
+.tb-lang-search::placeholder {
+  color: var(--fg-subtle);
+}
+
+.tb-lang-list {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  overflow-y: auto;
+  min-height: 0;
+}
+
+.tb-lang-list button {
+  justify-content: flex-start;
+  gap: 10px;
+}
+
+.lang-icon {
+  flex: 0 0 auto;
+  width: 14px;
+  height: 14px;
+  color: rgba(26, 26, 26, 0.4);
+}
+
+:root[data-theme="dark"] .lang-icon {
+  color: rgba(230, 230, 232, 0.35);
+}
+
+.tb-lang-list button:hover .lang-icon,
+.tb-lang-list button.active .lang-icon {
+  color: rgba(26, 26, 26, 0.7);
+}
+
+:root[data-theme="dark"] .tb-lang-list button:hover .lang-icon,
+:root[data-theme="dark"] .tb-lang-list button.active .lang-icon {
+  color: rgba(230, 230, 232, 0.6);
+}
+
+.lang-label {
+  flex: 1 1 auto;
+  text-align: left;
+}
 
 .tb-menu button {
   appearance: none;
@@ -166,6 +229,7 @@ body {
   gap: 12px;
   white-space: nowrap;
 }
+.tb-menu button[hidden] { display: none; }
 .tb-menu button:hover { background: var(--border); }
 .tb-menu button.active::after {
   content: "✓";
@@ -183,30 +247,23 @@ body {
   overflow: hidden;
 }
 
+/* @codemirror/merge scrolls at the `.cm-mergeView` level (both panes scroll
+   together as one unit). We pin its height to #app so it becomes the
+   scrollable box; the panes and inner editors stay auto-height per the
+   library's expectations. */
 #app > .cm-mergeView {
   position: absolute;
   inset: 0;
 }
 
-.cm-mergeView,
-.cm-mergeViewEditors {
-  height: 100%;
-  min-height: 0;
-}
-
 .cm-mergeView .cm-merge-a,
 .cm-mergeView .cm-merge-b {
-  height: 100%;
   min-width: 0;
-  overflow: hidden;
 }
 
-/* Full-height separator between panes — drawn on the container as a
-   pseudo-element so it doesn't stop at the last line of content. */
-.cm-mergeViewEditors {
-  position: relative;
-}
-.cm-mergeViewEditors::after {
+/* Full-height separator between panes — drawn on #app (fixed viewport size)
+   rather than on .cm-mergeViewEditors (content-height, shrinks with content). */
+#app::after {
   content: "";
   position: absolute;
   top: 0;
@@ -215,10 +272,10 @@ body {
   width: 1px;
   background: var(--border);
   pointer-events: none;
+  z-index: 1;
 }
 
 .cm-editor {
-  height: 100%;
   font-family: var(--font-mono);
   font-size: 13px;
   background: transparent;
@@ -226,7 +283,6 @@ body {
 
 .cm-editor .cm-scroller {
   font-family: var(--font-mono);
-  overflow: auto;
 }
 
 .cm-editor .cm-gutters {
@@ -291,15 +347,171 @@ body {
 
 .cm-mergeView .cm-changeGutter .cm-changedLineGutter { background: transparent; }
 
+/* Search panel (⌘F) — override the library's minimal grey box. */
+.cm-panels {
+  background: var(--bg-opaque);
+  color: var(--fg);
+  border-top: 1px solid var(--border);
+  font-family: var(--font-ui);
+}
+.cm-panels.cm-panels-top {
+  border-top: 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.cm-search {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 10px;
+}
+
+.cm-search .cm-textfield {
+  appearance: none;
+  border: 1px solid var(--border);
+  background: var(--bg-elevated);
+  color: var(--fg);
+  font: 500 12px var(--font-ui);
+  padding: 6px 8px;
+  border-radius: 6px;
+  outline: none;
+  min-width: 160px;
+  transition: border-color 80ms ease;
+}
+.cm-search .cm-textfield:focus {
+  border-color: var(--border-strong);
+}
+.cm-search .cm-textfield::placeholder {
+  color: var(--fg-subtle);
+}
+
+.cm-search .cm-button {
+  appearance: none;
+  border: 1px solid var(--border);
+  background: var(--bg-elevated);
+  color: var(--fg);
+  font: 500 12px var(--font-ui);
+  padding: 6px 10px;
+  border-radius: 6px;
+  cursor: pointer;
+  background-image: none;
+  text-transform: none;
+  transition: background 80ms ease, border-color 80ms ease;
+}
+.cm-search .cm-button:hover {
+  border-color: var(--border-strong);
+}
+.cm-search .cm-button:active {
+  transform: translateY(0.5px);
+}
+
+.cm-search label {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font: 500 12px var(--font-ui);
+  color: var(--fg-muted);
+  cursor: pointer;
+  user-select: none;
+}
+.cm-search label input[type="checkbox"] {
+  accent-color: var(--fg);
+  cursor: pointer;
+}
+
+.cm-search [name="close"] {
+  appearance: none;
+  background: transparent;
+  border: 0;
+  color: var(--fg-subtle);
+  font-size: 16px;
+  line-height: 1;
+  width: 24px;
+  height: 24px;
+  margin-left: auto;
+  border-radius: 6px;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.cm-search [name="close"]:hover {
+  background: var(--border);
+  color: var(--fg);
+}
+
+/* In-editor match highlight. */
+.cm-editor .cm-searchMatch {
+  background: rgba(234, 179, 8, 0.22);
+  outline: 1px solid rgba(234, 179, 8, 0.45);
+  border-radius: 2px;
+}
+.cm-editor .cm-searchMatch-selected {
+  background: rgba(234, 179, 8, 0.42);
+  outline-color: rgba(234, 179, 8, 0.7);
+}
+
+/* Swap-on-hover: transparent 20%-wide band centered on the separator. The
+   zone is pointer-transparent so the editor stays fully clickable; only the
+   button captures clicks — and even the button is pointer-none until the
+   cursor enters the band so it doesn't trap wheel events unnecessarily. */
+.swap-zone {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 45%;
+  width: 10%;
+  pointer-events: none;
+  z-index: 4;
+}
+
+.swap-btn {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  appearance: none;
+  border: 1px solid var(--border);
+  background: rgba(255, 255, 255, 0.35);
+  color: var(--fg-subtle);
+  padding: 6px 8px;
+  border-radius: 8px;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  backdrop-filter: blur(50px) saturate(180%);
+  -webkit-backdrop-filter: blur(50px) saturate(180%);
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 120ms ease, color 120ms ease;
+}
+
+:root[data-theme="dark"] .swap-btn {
+  background: rgba(26, 28, 34, 0.35);
+}
+
+.swap-zone.visible .swap-btn {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.swap-btn:hover {
+  color: var(--fg);
+  border-color: var(--border-strong);
+}
+.swap-btn:active {
+  transform: translate(-50%, calc(-50% + 0.5px));
+}
+
 #history-drawer {
   position: fixed;
   top: var(--chrome-height);
   right: 0;
   bottom: 0;
   width: 340px;
-  background: var(--bg-glass);
-  backdrop-filter: blur(30px) saturate(180%);
-  -webkit-backdrop-filter: blur(30px) saturate(180%);
+  background: var(--bg-opaque);
   border-left: 1px solid var(--border);
   transform: translateX(100%);
   transition: transform 220ms cubic-bezier(0.2, 0.7, 0.1, 1);

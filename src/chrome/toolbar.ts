@@ -6,10 +6,10 @@ import {
   detectedLanguage,
   themePreference,
   setThemePreference,
-  swapSides,
   type ThemePreference,
 } from "../state";
 import { availableLanguages } from "../merge/languages";
+import { languageIcon } from "../merge/languageIcons";
 
 const THEME_ICON: Record<ThemePreference, string> = {
   system: `<svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="12" height="9" rx="1.5"/><path d="M6 14h4M8 12v2"/></svg>`,
@@ -19,14 +19,12 @@ const THEME_ICON: Record<ThemePreference, string> = {
 
 export function mountToolbar(host: HTMLElement): void {
   host.innerHTML = `
-    <button class="tb-btn" data-action="swap" title="Swap sides (⌘⇧S)" aria-label="Swap sides">
-      <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
-        <path d="M3 5h9M3 5l3-3M3 5l3 3M13 11H4M13 11l-3-3M13 11l-3 3"/>
-      </svg>
-    </button>
     <div class="tb-lang">
       <button class="tb-btn tb-lang-trigger" data-action="lang" aria-haspopup="menu" aria-expanded="false"></button>
-      <div class="tb-menu tb-lang-menu" role="menu" hidden></div>
+      <div class="tb-menu tb-lang-menu" role="menu" hidden>
+        <input class="tb-lang-search" type="text" placeholder="Search…" autocomplete="off" spellcheck="false" />
+        <div class="tb-lang-list" role="none"></div>
+      </div>
     </div>
     <div class="tb-spacer" data-tauri-drag-region></div>
     <div class="tb-theme">
@@ -44,10 +42,11 @@ export function mountToolbar(host: HTMLElement): void {
     </button>
   `;
 
-  const swapBtn = host.querySelector<HTMLButtonElement>('[data-action="swap"]')!;
   const historyBtn = host.querySelector<HTMLButtonElement>('[data-action="history"]')!;
   const langBtn = host.querySelector<HTMLButtonElement>('[data-action="lang"]')!;
   const langMenu = host.querySelector<HTMLDivElement>(".tb-lang-menu")!;
+  const langSearch = host.querySelector<HTMLInputElement>(".tb-lang-search")!;
+  const langList = host.querySelector<HTMLDivElement>(".tb-lang-list")!;
   const themeBtn = host.querySelector<HTMLButtonElement>('[data-action="theme"]')!;
   const themeMenu = host.querySelector<HTMLDivElement>(".tb-theme-menu")!;
   const themeItems = Array.from(
@@ -55,22 +54,27 @@ export function mountToolbar(host: HTMLElement): void {
   );
 
   // Populate language menu: Auto + all available languages
-  const langEntries: { id: string; label: string }[] = [
-    { id: "__auto__", label: "Auto" },
+  const langEntries: { id: string; label: string; extensions: readonly string[] }[] = [
+    { id: "__auto__", label: "Auto", extensions: [] },
     ...availableLanguages(),
   ];
   for (const entry of langEntries) {
     const item = document.createElement("button");
     item.setAttribute("role", "menuitemradio");
     item.dataset.lang = entry.id;
-    item.textContent = entry.label;
-    langMenu.appendChild(item);
+    // Searchable tokens: label + all file extensions (e.g. "python py pyw").
+    // Lets users find a language by typing just its extension.
+    item.dataset.search = [
+      entry.label.toLowerCase(),
+      ...entry.extensions.map((e) => e.toLowerCase()),
+    ].join(" ");
+    item.innerHTML = `${languageIcon(entry.id)}<span class="lang-label">${entry.label}</span>`;
+    langList.appendChild(item);
   }
   const langItems = Array.from(
-    langMenu.querySelectorAll<HTMLButtonElement>("[data-lang]"),
+    langList.querySelectorAll<HTMLButtonElement>("[data-lang]"),
   );
 
-  swapBtn.addEventListener("click", swapSides);
   historyBtn.addEventListener("click", () => {
     historyOpen.value = !historyOpen.peek();
   });
@@ -127,8 +131,35 @@ export function mountToolbar(host: HTMLElement): void {
   const setLangMenuOpen = (open: boolean) => {
     langMenu.hidden = !open;
     langBtn.setAttribute("aria-expanded", String(open));
-    if (open) setThemeMenuOpen(false);
+    if (open) {
+      setThemeMenuOpen(false);
+      langSearch.value = "";
+      applyLangFilter("");
+      // Next frame so the hidden→visible transition completes before focus.
+      requestAnimationFrame(() => langSearch.focus());
+    }
   };
+
+  const applyLangFilter = (query: string) => {
+    const q = query.trim().replace(/^\./, "").toLowerCase();
+    for (const item of langItems) {
+      const match = q === "" || (item.dataset.search ?? "").includes(q);
+      item.hidden = !match;
+    }
+  };
+
+  langSearch.addEventListener("input", () => applyLangFilter(langSearch.value));
+
+  langSearch.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      const first = langItems.find((item) => !item.hidden);
+      first?.click();
+    } else if (e.key === "Escape") {
+      e.preventDefault();
+      setLangMenuOpen(false);
+    }
+  });
 
   themeBtn.addEventListener("click", (e) => {
     e.stopPropagation();
