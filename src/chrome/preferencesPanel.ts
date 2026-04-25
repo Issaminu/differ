@@ -46,12 +46,10 @@ export function mountPreferencesPanel(host: HTMLElement): PreferencesPanelContro
         <div class="pref-body">
           <section class="pref-view active" data-view="shortcuts">
             <div class="pref-shortcuts-toolbar">
-              <div class="pref-shortcuts-copy">
-                <div class="pref-label">Keyboard shortcuts</div>
-              </div>
               <button class="tb-btn ghost pref-reset-all-shortcuts" type="button" data-action="reset-shortcuts" title="Reset all shortcuts to defaults" aria-label="Reset all shortcuts to defaults">${SHORTCUT_RESET_ICON}<span>Reset All</span></button>
             </div>
             <div class="pref-shortcuts-list"></div>
+            <p class="pref-shortcuts-footnote">Use <strong>Capture</strong> to record the next key chord, <strong>Reset</strong> for the default binding, and commas between alternate shortcuts.</p>
           </section>
           <section class="pref-view" data-view="about" hidden>
             <div class="pref-about">
@@ -130,7 +128,10 @@ export function mountPreferencesPanel(host: HTMLElement): PreferencesPanelContro
     trigger.classList.toggle("primary", open);
     document.documentElement.toggleAttribute("data-prefs-open", open);
     if (open) {
-      requestAnimationFrame(() => tabButtons[0]?.focus());
+      requestAnimationFrame(() => {
+        const activeBtn = tabButtons.find((b) => b.dataset.tab === activeTab);
+        (activeBtn ?? tabButtons[0])?.focus();
+      });
     } else if (wasOpen) {
       trigger.focus();
     }
@@ -142,6 +143,7 @@ export function mountPreferencesPanel(host: HTMLElement): PreferencesPanelContro
       const on = button.dataset.tab === tab;
       button.classList.toggle("active", on);
       button.setAttribute("aria-selected", String(on));
+      button.tabIndex = on ? 0 : -1;
     }
     for (const view of views) {
       const on = view.dataset.view === tab;
@@ -213,14 +215,14 @@ export function mountPreferencesPanel(host: HTMLElement): PreferencesPanelContro
         capture.title = "Capture shortcut";
         capture.setAttribute("aria-label", "Capture shortcut");
         capture.setAttribute("aria-pressed", "false");
-        capture.innerHTML = SHORTCUT_CAPTURE_ICON;
+        capture.innerHTML = `${SHORTCUT_CAPTURE_ICON}<span class="pref-sr-only">Capture</span>`;
 
         const reset = document.createElement("button");
         reset.className = "tb-btn ghost tb-icon-btn pref-shortcut-icon-btn pref-shortcut-reset";
         reset.type = "button";
         reset.title = "Reset to default";
         reset.setAttribute("aria-label", "Reset to default");
-        reset.innerHTML = SHORTCUT_RESET_ICON;
+        reset.innerHTML = `${SHORTCUT_RESET_ICON}<span class="pref-sr-only">Reset</span>`;
 
         const error = document.createElement("div");
         error.className = "pref-shortcut-error";
@@ -302,7 +304,11 @@ export function mountPreferencesPanel(host: HTMLElement): PreferencesPanelContro
 
         actions.append(capture, reset);
         controls.append(input, actions);
-        row.append(copy, controls, error);
+
+        const main = document.createElement("div");
+        main.className = "pref-shortcut-row-main";
+        main.append(copy, controls);
+        row.append(main, error);
         group.appendChild(row);
 
         shortcutRows.set(item.id, { input, error, row, captureBtn: capture });
@@ -331,6 +337,20 @@ export function mountPreferencesPanel(host: HTMLElement): PreferencesPanelContro
       if (!tab) return;
       setActiveTab(tab);
     });
+  });
+
+  const tablist = host.querySelector<HTMLDivElement>(".pref-tabs")!;
+  tablist.addEventListener("keydown", (e) => {
+    if (e.key !== "ArrowLeft" && e.key !== "ArrowRight") return;
+    const focused = document.activeElement;
+    const idx = tabButtons.indexOf(focused as HTMLButtonElement);
+    if (idx < 0) return;
+    e.preventDefault();
+    const nextIdx = e.key === "ArrowRight" ? Math.min(idx + 1, tabButtons.length - 1) : Math.max(idx - 1, 0);
+    const tab = tabButtons[nextIdx]?.dataset.tab as PreferencesTab | undefined;
+    if (!tab) return;
+    setActiveTab(tab);
+    tabButtons[nextIdx]?.focus();
   });
 
   resetShortcutsBtn.addEventListener("click", () => {
