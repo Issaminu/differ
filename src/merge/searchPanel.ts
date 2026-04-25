@@ -9,13 +9,15 @@ import {
   replaceNext,
   setSearchQuery,
 } from "@codemirror/search";
+import { ChevronDown, ChevronRight, ChevronUp, Replace, ReplaceAll, X } from "lucide";
+import { lucideSvg } from "../chrome/lucideSvg";
 
-const CHEVRON_RIGHT = `<svg viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M5.5 3.5 10 8l-4.5 4.5-1-1L8 8 4.5 4.5z"/></svg>`;
-const CHEVRON_DOWN = `<svg viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M3.5 5.5 8 10l4.5-4.5-1-1L8 8 4.5 4.5z"/></svg>`;
-const CHEVRON_UP = `<svg viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="m3.5 10.5 4.5-4.5 4.5 4.5-1 1L8 8l-3.5 3.5z"/></svg>`;
-const ICON_CLOSE = `<svg viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="m8 7.086 3.293-3.293 1 1L9 8.086l3.293 3.293-1 1L8 9.086l-3.293 3.293-1-1L7 8.086 3.707 4.793l1-1z"/></svg>`;
-const ICON_REPLACE = `<svg viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M3.22 8h4.56a1.5 1.5 0 0 0 1.5-1.5V3h-1v3.5a.5.5 0 0 1-.5.5H3.22l1.14-1.14-.7-.72L1.5 7.5l2.16 2.36.7-.72zM10 10h4v4h-4z"/></svg>`;
-const ICON_REPLACE_ALL = `<svg viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M3.22 5h4.56a1.5 1.5 0 0 0 1.5-1.5V0h-1v3.5a.5.5 0 0 1-.5.5H3.22L4.36 2.86l-.7-.72L1.5 4.5l2.16 2.36.7-.72zM10 7h4v4h-4zm-6 5h4v4H4z"/></svg>`;
+const CHEVRON_RIGHT = lucideSvg(ChevronRight, { size: 14 });
+const CHEVRON_DOWN = lucideSvg(ChevronDown, { size: 14 });
+const CHEVRON_UP = lucideSvg(ChevronUp, { size: 14 });
+const ICON_CLOSE = lucideSvg(X, { size: 14 });
+const ICON_REPLACE = lucideSvg(Replace, { size: 14 });
+const ICON_REPLACE_ALL = lucideSvg(ReplaceAll, { size: 14 });
 
 export function createSearchPanel(view: EditorView): Panel {
   const dom = document.createElement("div");

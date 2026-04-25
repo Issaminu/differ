@@ -35,6 +35,39 @@ type ShortcutComboMap = Record<ShortcutActionId, ShortcutCombo[]>;
 
 const SHORTCUTS_KEY = "differ.shortcuts";
 
+export function isMacLikePlatform(): boolean {
+  if (typeof navigator === "undefined") return false;
+  const platform = navigator.platform ?? "";
+  const ua = navigator.userAgent ?? "";
+  return /Mac|iPhone|iPod|iPad/i.test(platform) || /\bMac OS X\b/i.test(ua);
+}
+
+function metaKeyDisplayToken(): string {
+  if (isMacLikePlatform()) return "Cmd";
+  const ua = typeof navigator !== "undefined" ? (navigator.userAgent ?? "") : "";
+  if (/Windows/i.test(ua)) return "Win";
+  return "Super";
+}
+
+/** Turn stored `Mod+…` / `Alt+…` into Cmd/Ctrl and Option/Alt for the shortcuts UI. */
+export function formatShortcutForDisplay(normalized: string): string {
+  const mac = isMacLikePlatform();
+  return normalized
+    .split(", ")
+    .map((combo) =>
+      combo
+        .split("+")
+        .map((token) => {
+          if (token === "Mod") return mac ? "Cmd" : "Ctrl";
+          if (token === "Alt") return mac ? "Option" : "Alt";
+          if (token === "Meta") return metaKeyDisplayToken();
+          return token;
+        })
+        .join("+"),
+    )
+    .join(", ");
+}
+
 export const shortcutDefinitions: readonly ShortcutDefinition[] = [
   {
     id: "gotoPrevChange",
@@ -114,7 +147,9 @@ const defaultShortcutInputs = shortcutDefinitions.reduce((acc, item) => {
 }, {} as ShortcutInputMap);
 
 function canonicalModifier(token: string): ShortcutModifierKey | null {
-  switch (token.toLowerCase()) {
+  const t = token.trim();
+  const lower = t.toLowerCase();
+  switch (lower) {
     case "mod":
       return "mod";
     case "shift":
@@ -128,8 +163,10 @@ function canonicalModifier(token: string): ShortcutModifierKey | null {
     case "cmd":
     case "command":
     case "meta":
-      return "meta";
+      return "mod";
     default:
+      if (t === "⌘") return "mod";
+      if (t === "⌥") return "alt";
       return null;
   }
 }
@@ -207,6 +244,37 @@ function normalizeEventKey(key: string): string {
   }
 }
 
+export type ShortcutCaptureResult =
+  | { kind: "escape" }
+  | { kind: "ignore" }
+  | { kind: "binding"; normalized: string };
+
+/**
+ * Map a keydown while capturing a shortcut in preferences.
+ * Escape cancels capture; modifier-only keydowns are ignored.
+ */
+export function shortcutBindingFromKeyboardEvent(event: KeyboardEvent): ShortcutCaptureResult {
+  if (event.repeat) return { kind: "ignore" };
+  if (event.key === "Escape") return { kind: "escape" };
+
+  const modifierOnly = new Set(["Shift", "Control", "Meta", "Alt", "OS"]);
+  if (modifierOnly.has(event.key)) return { kind: "ignore" };
+
+  const key = normalizeEventKey(event.key);
+  const tokens: string[] = [];
+  if (event.metaKey || event.ctrlKey) tokens.push("Mod");
+  if (event.shiftKey) tokens.push("Shift");
+  if (event.altKey) tokens.push("Alt");
+  tokens.push(formatKey(key));
+
+  try {
+    const normalized = parseShortcutInput(tokens.join("+")).normalized;
+    return { kind: "binding", normalized };
+  } catch {
+    return { kind: "ignore" };
+  }
+}
+
 function parseShortcutInput(input: string): { combos: ShortcutCombo[]; normalized: string } {
   const combos = input
     .split(",")
@@ -248,7 +316,8 @@ function parseShortcutInput(input: string): { combos: ShortcutCombo[]; normalize
       throw new Error(`Shortcut "${combo}" is missing its key.`);
     }
     if (value.mod && (value.ctrl || value.meta)) {
-      throw new Error(`Shortcut "${combo}" can't mix Mod with Ctrl or Meta.`);
+      const modLabel = isMacLikePlatform() ? "Cmd" : "Ctrl";
+      throw new Error(`Shortcut "${combo}" can't mix ${modLabel} with Ctrl or Meta.`);
     }
 
     return value;
@@ -306,6 +375,10 @@ const parsedShortcutCombos = computed<ShortcutComboMap>(() => {
 
 export function getShortcutInput(id: ShortcutActionId): string {
   return shortcutInputs.peek()[id];
+}
+
+export function getShortcutInputDisplay(id: ShortcutActionId): string {
+  return formatShortcutForDisplay(shortcutInputs.value[id]);
 }
 
 export function updateShortcutInput(

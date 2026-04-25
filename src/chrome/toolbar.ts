@@ -15,18 +15,34 @@ import {
 } from "../state";
 import { availableLanguages } from "../merge/languages";
 import { languageIcon } from "../merge/languageIcons";
+import {
+  ArrowDown,
+  ArrowLeft,
+  ArrowRight,
+  ArrowUp,
+  History,
+  LockOpen,
+  Monitor,
+  Moon,
+  Sun,
+} from "lucide";
+import { lucidePadlockLockedHtml, lucideSvg } from "./lucideSvg";
 import { mountPreferencesPanel } from "./preferencesPanel";
 
 const THEME_ICON: Record<ThemePreference, string> = {
-  system: `<svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="12" height="9" rx="1.5"/><path d="M6 14h4M8 12v2"/></svg>`,
-  light: `<svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="8" cy="8" r="3"/><path d="M8 1v1.5M8 13.5V15M1 8h1.5M13.5 8H15M3 3l1 1M12 12l1 1M3 13l1-1M12 4l1-1"/></svg>`,
-  dark: `<svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M21.752 15.002A9.718 9.718 0 0 1 18 15.75c-5.385 0-9.75-4.365-9.75-9.75 0-1.33.266-2.597.748-3.752A9.753 9.753 0 0 0 3 11.25C3 16.635 7.365 21 12.75 21a9.753 9.753 0 0 0 9.002-5.998z"/></svg>`,
+  system: lucideSvg(Monitor, { size: 14 }),
+  light: lucideSvg(Sun, { size: 14 }),
+  dark: lucideSvg(Moon, { size: 14, filled: true }),
 };
 
-const NAV_BACK_ICON = `<span class="tb-nav-glyph" aria-hidden="true">←</span>`;
-const NAV_FORWARD_ICON = `<span class="tb-nav-glyph" aria-hidden="true">→</span>`;
-const LOCK_CLOSED_FILLED = `<svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path fill-rule="evenodd" d="M8 1.5A3.5 3.5 0 0 0 4.5 5v1.5h-.75A1.75 1.75 0 0 0 2 8.25v4.5c0 .967.783 1.75 1.75 1.75h8.5A1.75 1.75 0 0 0 14 12.75v-4.5A1.75 1.75 0 0 0 12.25 6.5h-.75V5A3.5 3.5 0 0 0 8 1.5Zm2 5V5A2 2 0 1 0 6 5v1.5h4Z" clip-rule="evenodd"/></svg>`;
-const LOCK_OPEN_OUTLINE = `<svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="7" width="10" height="7" rx="1.5"/><path d="M5 7V5a3 3 0 0 1 5.5-1.2"/></svg>`;
+const NAV_BACK_ICON = lucideSvg(ArrowLeft, { size: 15, strokeWidth: 2 });
+const NAV_FORWARD_ICON = lucideSvg(ArrowRight, { size: 15, strokeWidth: 2 });
+/** Scroll sync: locked = filled body + outline shackle; unlocked = outline open lock. */
+const SCROLL_LOCK_LOCKED = lucidePadlockLockedHtml(14);
+const SCROLL_LOCK_UNLOCKED = lucideSvg(LockOpen, { size: 14, strokeWidth: 2 });
+const DIFF_NAV_PREV = lucideSvg(ArrowUp, { size: 11, strokeWidth: 1.85 });
+const DIFF_NAV_NEXT = lucideSvg(ArrowDown, { size: 11, strokeWidth: 1.85 });
+const HISTORY_ICON = lucideSvg(History, { size: 14 });
 
 export interface ToolbarHandlers {
   gotoChunk: (direction: "next" | "prev") => void;
@@ -53,16 +69,16 @@ export function mountToolbar(host: HTMLElement, handlers: ToolbarHandlers): void
     </div>
     <div class="diff-stats" aria-label="Diff summary" hidden>
       <button class="diff-nav" data-action="prev-diff" title="Previous change (⌥↑)" aria-label="Previous change">
-        <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="m4 10 4-4 4 4"/></svg>
+        ${DIFF_NAV_PREV}
       </button>
       <span class="diff-stat-added"></span>
       <span class="diff-stat-removed"></span>
       <button class="diff-nav" data-action="next-diff" title="Next change (⌥↓)" aria-label="Next change">
-        <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="m4 6 4 4 4-4"/></svg>
+        ${DIFF_NAV_NEXT}
       </button>
     </div>
     <div class="tb-spacer" data-tauri-drag-region></div>
-    <button class="tb-btn" data-action="scroll-lock" aria-label="Lock scroll"></button>
+    <button class="tb-btn tb-icon-btn" type="button" data-action="scroll-lock" aria-label="Lock scroll"></button>
     <div class="tb-theme">
       <button class="tb-btn tb-theme-trigger" data-action="theme" title="Theme" aria-haspopup="menu" aria-expanded="false"></button>
       <div class="tb-menu tb-theme-menu" role="menu" hidden>
@@ -72,9 +88,7 @@ export function mountToolbar(host: HTMLElement, handlers: ToolbarHandlers): void
       </div>
     </div>
     <button class="tb-btn" data-action="history" title="History (⌘B)" aria-label="History">
-      <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
-        <circle cx="8" cy="8" r="6"/><path d="M8 4v4l2.5 2.5"/>
-      </svg>
+      ${HISTORY_ICON}
     </button>
     <div class="tb-prefs-host"></div>
   `;
@@ -150,7 +164,7 @@ export function mountToolbar(host: HTMLElement, handlers: ToolbarHandlers): void
 
   effect(() => {
     const locked = scrollLocked.value;
-    scrollLockBtn.innerHTML = locked ? LOCK_CLOSED_FILLED : LOCK_OPEN_OUTLINE;
+    scrollLockBtn.innerHTML = locked ? SCROLL_LOCK_LOCKED : SCROLL_LOCK_UNLOCKED;
     scrollLockBtn.title = locked ? "Scroll locked — both panes move together" : "Scroll unlocked — panes scroll independently";
     scrollLockBtn.setAttribute("aria-label", locked ? "Scroll locked" : "Scroll unlocked");
     document.documentElement.dataset.scrollLocked = String(locked);

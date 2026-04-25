@@ -1,8 +1,8 @@
+import { ArrowLeftRight } from "lucide";
+import { lucideSvg } from "../chrome/lucideSvg";
 import { swapSides } from "../state";
 
-const SWAP_ICON = `<svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
-  <path d="M3 5h9M3 5l3-3M3 5l3 3M13 11H4M13 11l-3-3M13 11l-3 3"/>
-</svg>`;
+const SWAP_ICON = lucideSvg(ArrowLeftRight, { size: 14 });
 
 // Hover band: 5% adjacent to the separator on each side (45%–55% of #app).
 // The zone is pointer-transparent; only the button captures clicks.

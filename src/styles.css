@@ -130,6 +130,10 @@ body {
   gap: 0;
 }
 
+.tb-nav-btn svg {
+  flex-shrink: 0;
+}
+
 .tb-nav-glyph {
   display: inline-block;
   font-size: 15px;
@@ -200,15 +204,19 @@ body {
   background: transparent;
   border: 0;
   color: var(--fg-subtle);
-  width: 18px;
-  height: 18px;
-  border-radius: 4px;
+  width: 16px;
+  height: 16px;
+  border-radius: 3px;
   cursor: pointer;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   padding: 0;
   -webkit-app-region: no-drag;
+}
+
+.diff-nav svg {
+  flex-shrink: 0;
 }
 .diff-nav:hover { background: var(--border); color: var(--fg); }
 .diff-nav:active { transform: translateY(0.5px); }
@@ -523,6 +531,25 @@ body {
   gap: 8px;
 }
 
+.pref-shortcut-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+.pref-shortcut-icon-btn {
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  justify-content: center;
+}
+
+.pref-shortcut-capture.listening {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
 .pref-shortcut-input {
   width: 150px;
   appearance: none;
@@ -538,9 +565,6 @@ body {
   border-color: var(--accent);
 }
 
-.pref-shortcut-reset {
-  padding: 7px 9px;
-}
 
 .pref-shortcut-row {
   align-items: start;
