@@ -124,6 +124,10 @@ body {
 .tb-spacer { flex: 1; }
 
 .diff-stats {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
   display: inline-flex;
   align-items: center;
   gap: 8px;
@@ -135,6 +139,24 @@ body {
 .diff-stats[hidden] { display: none; }
 .diff-stat-added { color: rgb(70, 180, 90); }
 .diff-stat-removed { color: rgb(225, 90, 90); }
+
+.diff-nav {
+  appearance: none;
+  background: transparent;
+  border: 0;
+  color: var(--fg-subtle);
+  width: 18px;
+  height: 18px;
+  border-radius: 4px;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  -webkit-app-region: no-drag;
+}
+.diff-nav:hover { background: var(--border); color: var(--fg); }
+.diff-nav:active { transform: translateY(0.5px); }
 
 .tb-theme,
 .tb-lang {

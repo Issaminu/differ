@@ -20,7 +20,11 @@ const THEME_ICON: Record<ThemePreference, string> = {
   dark: `<svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M21.752 15.002A9.718 9.718 0 0 1 18 15.75c-5.385 0-9.75-4.365-9.75-9.75 0-1.33.266-2.597.748-3.752A9.753 9.753 0 0 0 3 11.25C3 16.635 7.365 21 12.75 21a9.753 9.753 0 0 0 9.002-5.998z"/></svg>`,
 };
 
-export function mountToolbar(host: HTMLElement): void {
+export interface ToolbarHandlers {
+  gotoChunk: (direction: "next" | "prev") => void;
+}
+
+export function mountToolbar(host: HTMLElement, handlers: ToolbarHandlers): void {
   host.innerHTML = `
     <div class="tb-lang">
       <button class="tb-btn tb-lang-trigger" data-action="lang" aria-haspopup="menu" aria-expanded="false"></button>
@@ -30,8 +34,14 @@ export function mountToolbar(host: HTMLElement): void {
       </div>
     </div>
     <div class="diff-stats" aria-label="Diff summary" hidden>
+      <button class="diff-nav" data-action="prev-diff" title="Previous change (⌥↑)" aria-label="Previous change">
+        <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="m4 10 4-4 4 4"/></svg>
+      </button>
       <span class="diff-stat-added"></span>
       <span class="diff-stat-removed"></span>
+      <button class="diff-nav" data-action="next-diff" title="Next change (⌥↓)" aria-label="Next change">
+        <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="m4 6 4 4 4-4"/></svg>
+      </button>
     </div>
     <div class="tb-spacer" data-tauri-drag-region></div>
     <button class="tb-btn" data-action="scroll-lock" aria-label="Lock scroll"></button>
@@ -96,12 +106,16 @@ export function mountToolbar(host: HTMLElement): void {
   const statsEl = host.querySelector<HTMLDivElement>(".diff-stats")!;
   const addedEl = statsEl.querySelector<HTMLSpanElement>(".diff-stat-added")!;
   const removedEl = statsEl.querySelector<HTMLSpanElement>(".diff-stat-removed")!;
+  const prevDiffBtn = host.querySelector<HTMLButtonElement>('[data-action="prev-diff"]')!;
+  const nextDiffBtn = host.querySelector<HTMLButtonElement>('[data-action="next-diff"]')!;
   effect(() => {
     const { added, removed } = diffStats.value;
     addedEl.textContent = `+${added}`;
     removedEl.textContent = `−${removed}`;
     statsEl.hidden = added === 0 && removed === 0;
   });
+  prevDiffBtn.addEventListener("click", () => handlers.gotoChunk("prev"));
+  nextDiffBtn.addEventListener("click", () => handlers.gotoChunk("next"));
 
   const LOCK_CLOSED = `<svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="7" width="10" height="7" rx="1.5"/><path d="M5 7V5a3 3 0 0 1 6 0v2"/></svg>`;
   const LOCK_OPEN = `<svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="7" width="10" height="7" rx="1.5"/><path d="M5 7V5a3 3 0 0 1 5.5-1.2"/></svg>`;

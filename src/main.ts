@@ -26,9 +26,9 @@ async function main(): Promise<void> {
 
   const merge = mountMergeView(appHost);
   mountSwapHover(appHost);
-  mountToolbar(toolbarHost);
+  mountToolbar(toolbarHost, { gotoChunk: merge.gotoChunk });
   mountHistoryDrawer(drawerHost);
-  installShortcuts();
+  installShortcuts({ gotoChunk: merge.gotoChunk });
 
   // Resolved theme = preference, unless "system" (then follow OS).
   // Also push the choice down to the native window so NSVisualEffectView

@@ -307,6 +307,7 @@ export interface MergeController {
   setDocs: (a: string, b: string) => void;
   setTheme: (mode: "light" | "dark") => void;
   setLanguage: (id: string) => Promise<void>;
+  gotoChunk: (direction: "next" | "prev") => void;
   destroy: () => void;
 }
 
@@ -427,6 +428,43 @@ export function mountMergeView(host: HTMLElement): MergeController {
     viewB.dispatch({ effects: langCompartmentB.reconfigure(ext) });
   };
 
+  const gotoChunk = (direction: "next" | "prev") => {
+    const view = viewA.hasFocus ? viewA : viewB.hasFocus ? viewB : viewA;
+    const chunks = view.state.field(chunksField);
+    if (chunks.length === 0) return;
+
+    const side: "a" | "b" = view === viewA ? "a" : "b";
+    const startOf = (i: number) =>
+      side === "a" ? chunks[i].fromA : chunks[i].fromB;
+    const cursor = view.state.selection.main.head;
+
+    let target: number | null = null;
+    if (direction === "next") {
+      for (let i = 0; i < chunks.length; i++) {
+        if (startOf(i) > cursor) {
+          target = startOf(i);
+          break;
+        }
+      }
+      if (target === null) target = startOf(0);
+    } else {
+      for (let i = chunks.length - 1; i >= 0; i--) {
+        if (startOf(i) < cursor) {
+          target = startOf(i);
+          break;
+        }
+      }
+      if (target === null) target = startOf(chunks.length - 1);
+    }
+
+    const pos = Math.min(Math.max(target, 0), view.state.doc.length);
+    view.focus();
+    view.dispatch({
+      selection: { anchor: pos },
+      effects: EditorView.scrollIntoView(pos, { y: "center" }),
+    });
+  };
+
   const destroy = () => {
     document.removeEventListener("keydown", onFnTab, true);
     disposeScrollLockEffect();
@@ -439,7 +477,7 @@ export function mountMergeView(host: HTMLElement): MergeController {
 
   document.documentElement.dataset.theme = mode;
 
-  return { setDocs, setTheme, setLanguage, destroy };
+  return { setDocs, setTheme, setLanguage, gotoChunk, destroy };
 }
 
 export { EditorState };

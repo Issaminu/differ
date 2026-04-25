@@ -11,8 +11,26 @@ function isMetaOrCtrl(e: KeyboardEvent): boolean {
   return e.metaKey || e.ctrlKey;
 }
 
-export function installShortcuts(): () => void {
+export interface ShortcutHandlers {
+  gotoChunk: (direction: "next" | "prev") => void;
+}
+
+export function installShortcuts(handlers: ShortcutHandlers): () => void {
   const onKeyDown = (e: KeyboardEvent) => {
+    // ⌥↑ / ⌥↓ — jump to previous / next change.
+    if (e.altKey && !e.metaKey && !e.ctrlKey && !e.shiftKey) {
+      if (e.key === "ArrowUp") {
+        e.preventDefault();
+        handlers.gotoChunk("prev");
+        return;
+      }
+      if (e.key === "ArrowDown") {
+        e.preventDefault();
+        handlers.gotoChunk("next");
+        return;
+      }
+    }
+
     if (!isMetaOrCtrl(e)) return;
 
     const k = e.key.toLowerCase();
