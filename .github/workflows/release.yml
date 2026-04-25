@@ -1,9 +1,14 @@
 name: Release
 
+# Triggered when you create a release in the GitHub UI (draft or non-draft).
+# The matrix builds the desktop bundles and uploads them to that release;
+# the final job appends a "Try it on the web" link to the release body.
+#
+# Production web deploys happen separately on every push to main (ci.yml),
+# so we don't redeploy here — we just link.
 on:
-  push:
-    tags:
-      - "v*"
+  release:
+    types: [created]
 
 permissions:
   contents: write
@@ -33,6 +38,8 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v6
+        with:
+          ref: ${{ github.event.release.tag_name }}
 
       - name: Install Linux dependencies
         if: matrix.os == 'ubuntu-22.04'
@@ -64,31 +71,29 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          tagName: ${{ github.ref_name }}
-          releaseName: "Differ ${{ github.ref_name }}"
-          releaseDraft: true
-          prerelease: false
+          releaseId: ${{ github.event.release.id }}
           args: --bundles ${{ matrix.bundles }}
 
-  deploy-web:
-    name: Deploy web (production)
+  link-web:
+    name: Append web link to release notes
+    needs: build-tauri
     runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      deployments: write
     steps:
-      - uses: actions/checkout@v6
-
-      - uses: oven-sh/setup-bun@v2
-        with:
-          bun-version: latest
-
-      - run: bun install --frozen-lockfile
-      - run: bun run build:web
-
-      - name: Deploy to Cloudflare Pages
-        uses: cloudflare/wrangler-action@v3
-        with:
-          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          command: pages deploy dist --project-name=differ --branch=main
+      - name: Append web link
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          RELEASE_ID: ${{ github.event.release.id }}
+          WEB_URL: https://differ.pages.dev
+        run: |
+          set -euo pipefail
+          marker="<!-- web-link -->"
+          existing=$(gh api "repos/$REPO/releases/$RELEASE_ID" --jq .body)
+          if printf "%s" "$existing" | grep -qF "$marker"; then
+            echo "Web link already present; nothing to do."
+            exit 0
+          fi
+          new_body=$(printf '%s\n\n%s\n## Try it on the web\nLive build: %s\n' \
+            "$existing" "$marker" "$WEB_URL")
+          jq -n --arg body "$new_body" '{body: $body}' \
+            | gh api -X PATCH "repos/$REPO/releases/$RELEASE_ID" --input -
