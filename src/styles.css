@@ -601,7 +601,13 @@ body {
   transform: translate(-50%, -50%);
   appearance: none;
   border: 1px solid var(--border);
-  background: rgba(255, 255, 255, 0.35);
+  /* Frosted-glass: a strong tint that obscures content behind plus a heavy
+     blur on top. The body element already has its own backdrop-filter which
+     can defeat nested ones in WebKit, so we lean on opacity to do the
+     obscuring and keep the blur as a polish layer. `isolation: isolate`
+     forces a fresh stacking context so the blur composites against the
+     editor content directly. */
+  background: rgba(245, 245, 247, 0.92);
   color: var(--fg-subtle);
   padding: 6px 8px;
   border-radius: 8px;
@@ -609,15 +615,16 @@ body {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  backdrop-filter: blur(50px) saturate(180%);
-  -webkit-backdrop-filter: blur(50px) saturate(180%);
+  isolation: isolate;
+  backdrop-filter: blur(40px) saturate(180%);
+  -webkit-backdrop-filter: blur(40px) saturate(180%);
   pointer-events: none;
   opacity: 0;
   transition: opacity 120ms ease, color 120ms ease;
 }
 
 :root[data-theme="dark"] .swap-btn {
-  background: rgba(26, 28, 34, 0.35);
+  background: rgba(20, 22, 26, 0.92);
 }
 
 .swap-zone.visible .swap-btn {
