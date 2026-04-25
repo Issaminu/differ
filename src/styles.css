@@ -294,6 +294,9 @@ body {
 
 .cm-editor .cm-scroller {
   font-family: var(--font-mono);
+  /* Disable macOS elastic overscroll so the scroll just stops dead at the
+     bottom instead of bouncing past and snapping back. */
+  overscroll-behavior: none;
 }
 
 /* Scroll-lock: only show the right pane's scrollbar; the left is driven via

@@ -86,8 +86,8 @@ function baseExtensions(
 }
 
 // Pad the shorter pane's .cm-content with bottom padding so both panes have
-// the same scrollable height. The comparison-against-current-padding keeps
-// this stable (no ResizeObserver loop once the padding is correct).
+// the same scrollable height while scroll is locked. In unlocked mode the
+// padding is removed so each pane stops naturally at its last line.
 function equalizePaneHeights(
   aScroll: HTMLElement,
   bScroll: HTMLElement,
@@ -99,16 +99,20 @@ function equalizePaneHeights(
   const equalize = () => {
     const aPad = parseFloat(contentA.style.paddingBottom) || 0;
     const bPad = parseFloat(contentB.style.paddingBottom) || 0;
-    const aNat = contentA.offsetHeight - aPad;
-    const bNat = contentB.offsetHeight - bPad;
-    const target = Math.max(aNat, bNat);
-    const newAPad = Math.max(0, target - aNat);
-    const newBPad = Math.max(0, target - bNat);
-    if (Math.round(newAPad) !== Math.round(aPad)) {
-      contentA.style.paddingBottom = newAPad > 0 ? `${newAPad}px` : "";
+    let targetA = 0;
+    let targetB = 0;
+    if (scrollLocked.peek()) {
+      const aNat = contentA.offsetHeight - aPad;
+      const bNat = contentB.offsetHeight - bPad;
+      const target = Math.max(aNat, bNat);
+      targetA = Math.max(0, target - aNat);
+      targetB = Math.max(0, target - bNat);
     }
-    if (Math.round(newBPad) !== Math.round(bPad)) {
-      contentB.style.paddingBottom = newBPad > 0 ? `${newBPad}px` : "";
+    if (Math.round(targetA) !== Math.round(aPad)) {
+      contentA.style.paddingBottom = targetA > 0 ? `${targetA}px` : "";
+    }
+    if (Math.round(targetB) !== Math.round(bPad)) {
+      contentB.style.paddingBottom = targetB > 0 ? `${targetB}px` : "";
     }
   };
 
@@ -117,7 +121,15 @@ function equalizePaneHeights(
   ro.observe(contentB);
   equalize();
 
-  return () => ro.disconnect();
+  const disposeLockEffect = effect(() => {
+    scrollLocked.value;
+    equalize();
+  });
+
+  return () => {
+    ro.disconnect();
+    disposeLockEffect();
+  };
 }
 
 // Mirror vertical scroll between the two panes so diff lines stay aligned.
@@ -155,6 +167,56 @@ function syncScroll(a: HTMLElement, b: HTMLElement): () => void {
   };
 }
 
+// macOS trackpad scrolling can put WebKit's async scroll tree into an elastic
+// rubber-band state before edge-only wheel guards get a chance to help. For
+// the editor panes, drive wheel scrolling ourselves and clamp the result. The
+// native scrollbars are still real because scrollTop/scrollLeft remain on the
+// CodeMirror scrollers; only the wheel default is bypassed.
+function installPaneWheelScrolling(...scrollers: HTMLElement[]): () => void {
+  const WHEEL_OPTIONS: AddEventListenerOptions = {
+    capture: true,
+    passive: false,
+  };
+
+  const wheelScale = (
+    el: HTMLElement,
+    event: WheelEvent,
+    axis: "x" | "y",
+  ): number => {
+    if (event.deltaMode === WheelEvent.DOM_DELTA_LINE) {
+      const lineHeight = parseFloat(getComputedStyle(el).lineHeight);
+      return Number.isFinite(lineHeight) ? lineHeight : 16;
+    }
+    if (event.deltaMode === WheelEvent.DOM_DELTA_PAGE) {
+      return axis === "x" ? el.clientWidth : el.clientHeight;
+    }
+    return 1;
+  };
+
+  const cleanups = scrollers.map((el) => {
+    const onWheel = (event: WheelEvent) => {
+      if (event.defaultPrevented || event.ctrlKey || event.metaKey) return;
+      if (event.deltaX === 0 && event.deltaY === 0) return;
+
+      const deltaX = event.deltaX * wheelScale(el, event, "x");
+      const deltaY = event.deltaY * wheelScale(el, event, "y");
+      const maxTop = Math.max(0, el.scrollHeight - el.clientHeight);
+      const maxLeft = Math.max(0, el.scrollWidth - el.clientWidth);
+      const nextTop = Math.min(Math.max(el.scrollTop + deltaY, 0), maxTop);
+      const nextLeft = Math.min(Math.max(el.scrollLeft + deltaX, 0), maxLeft);
+
+      el.scrollTop = nextTop;
+      el.scrollLeft = nextLeft;
+      event.preventDefault();
+    };
+
+    el.addEventListener("wheel", onWheel, WHEEL_OPTIONS);
+    return () => el.removeEventListener("wheel", onWheel, WHEEL_OPTIONS);
+  });
+
+  return () => cleanups.forEach((cleanup) => cleanup());
+}
+
 // Override the library's `height: auto !important` / `overflow-y: visible
 // !important` on the per-pane scroller. Inline !important is the only way to
 // beat an external !important with equal specificity + later source order.
@@ -168,6 +230,7 @@ function forcePerPaneScroll(host: HTMLElement): void {
   scrollers.forEach((el) => {
     el.style.setProperty("overflow", "auto", "important");
     el.style.setProperty("height", "100%", "important");
+    el.style.setProperty("overscroll-behavior", "none", "important");
     el.style.minHeight = "0";
     el.style.flex = "1 1 auto";
   });
@@ -205,6 +268,10 @@ export function mountMergeView(host: HTMLElement): MergeController {
 
   forcePerPaneScroll(host);
   const stopEqualize = equalizePaneHeights(view.a.scrollDOM, view.b.scrollDOM);
+  const stopPaneWheelScrolling = installPaneWheelScrolling(
+    view.a.scrollDOM,
+    view.b.scrollDOM,
+  );
 
   // Attach/detach scroll sync based on the scrollLocked signal.
   let stopScrollSync: (() => void) | null = null;
@@ -270,6 +337,7 @@ export function mountMergeView(host: HTMLElement): MergeController {
     document.removeEventListener("keydown", onFnTab, true);
     disposeScrollLockEffect();
     stopScrollSync?.();
+    stopPaneWheelScrolling();
     stopEqualize();
     view.destroy();
   };

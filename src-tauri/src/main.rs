@@ -3,6 +3,8 @@
 mod commands;
 mod dedupe;
 mod history;
+#[cfg(target_os = "macos")]
+mod macos;
 
 use std::sync::Arc;
 use tauri::Manager;
@@ -23,6 +25,9 @@ fn main() {
     tauri::Builder::default()
         .plugin(tauri_plugin_clipboard_manager::init())
         .setup(move |app| {
+            #[cfg(target_os = "macos")]
+            macos::disable_webview_scroll_elasticity(app);
+
             let handle = app.handle().clone();
             let store = runtime.block_on(async {
                 HistoryStore::load_from_app_dir(&handle)
