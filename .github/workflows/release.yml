@@ -84,7 +84,7 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           REPO: ${{ github.repository }}
           RELEASE_ID: ${{ github.event.release.id }}
-          WEB_URL: https://differ.pages.dev
+          WEB_URL: https://differ.issaminu.com
         run: |
           set -euo pipefail
           marker="<!-- web-link -->"
