@@ -95,6 +95,24 @@ body {
   margin-left: 12px;
 }
 
+.tb-nav {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.tb-nav-btn {
+  padding: 6px 7px;
+}
+.tb-nav-btn:disabled {
+  cursor: default;
+  opacity: 0.35;
+}
+.tb-nav-btn:disabled:hover {
+  background: var(--bg-elevated);
+  border-color: var(--border);
+}
+
 .tb-btn {
   appearance: none;
   border: 1px solid var(--border);

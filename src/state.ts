@@ -58,6 +58,11 @@ export const diffStats = signal<{ added: number; removed: number }>({
   removed: 0,
 });
 
+// Browser-style unified back/forward across both panes. Drives the toolbar
+// buttons' enabled state; populated by the snapshot history in mergeView.
+export const canEditBack = signal(false);
+export const canEditForward = signal(false);
+
 export function resetBothDocs(): void {
   originalText.value = "";
   modifiedText.value = "";

@@ -34,6 +34,8 @@ import { effect } from "@preact/signals-core";
 
 import { createSearchPanel } from "./searchPanel";
 import {
+  canEditBack,
+  canEditForward,
   diffStats,
   modifiedText,
   originalText,
@@ -215,6 +217,98 @@ function equalizePaneHeights(
   return { update, dispose: disposeLockEffect };
 }
 
+// Browser-style back/forward over a unified snapshot history of both docs.
+// Captures (textA, textB) on a short debounce after edits stop. Going back
+// or forward applies the snapshot at the new index without re-capturing.
+// Independent from CodeMirror's per-pane Cmd+Z — users keep both.
+const NAV_DEBOUNCE_MS = 350;
+const NAV_HISTORY_MAX = 50;
+
+function installEditNav(
+  viewA: EditorView,
+  viewB: EditorView,
+): { goBack: () => void; goForward: () => void; dispose: () => void } {
+  let history: { a: string; b: string }[] = [
+    {
+      a: viewA.state.doc.toString(),
+      b: viewB.state.doc.toString(),
+    },
+  ];
+  let index = 0;
+  let suspended = false;
+  let captureTimer: ReturnType<typeof setTimeout> | null = null;
+
+  const updateStats = () => {
+    canEditBack.value = index > 0;
+    canEditForward.value = index < history.length - 1;
+  };
+  updateStats();
+
+  const captureNow = () => {
+    if (suspended) return;
+    const a = viewA.state.doc.toString();
+    const b = viewB.state.doc.toString();
+    const current = history[index];
+    if (current && current.a === a && current.b === b) return;
+    history = history.slice(0, index + 1);
+    history.push({ a, b });
+    if (history.length > NAV_HISTORY_MAX) {
+      const drop = history.length - NAV_HISTORY_MAX;
+      history = history.slice(drop);
+    }
+    index = history.length - 1;
+    updateStats();
+  };
+
+  const dispose = effect(() => {
+    originalText.value;
+    modifiedText.value;
+    if (suspended) return;
+    if (captureTimer) clearTimeout(captureTimer);
+    captureTimer = setTimeout(captureNow, NAV_DEBOUNCE_MS);
+  });
+
+  const apply = (snap: { a: string; b: string }) => {
+    suspended = true;
+    if (viewA.state.doc.toString() !== snap.a) {
+      viewA.dispatch({
+        changes: { from: 0, to: viewA.state.doc.length, insert: snap.a },
+      });
+    }
+    if (viewB.state.doc.toString() !== snap.b) {
+      viewB.dispatch({
+        changes: { from: 0, to: viewB.state.doc.length, insert: snap.b },
+      });
+    }
+    suspended = false;
+  };
+
+  const goBack = () => {
+    if (index <= 0) return;
+    index--;
+    apply(history[index]);
+    updateStats();
+  };
+
+  const goForward = () => {
+    if (index >= history.length - 1) return;
+    index++;
+    apply(history[index]);
+    updateStats();
+  };
+
+  return {
+    goBack,
+    goForward,
+    dispose: () => {
+      if (captureTimer) clearTimeout(captureTimer);
+      dispose();
+      canEditBack.value = false;
+      canEditForward.value = false;
+    },
+  };
+}
+
 function syncScroll(a: HTMLElement, b: HTMLElement): () => void {
   let lastSetA = -1;
   let lastSetB = -1;
@@ -308,6 +402,8 @@ export interface MergeController {
   setTheme: (mode: "light" | "dark") => void;
   setLanguage: (id: string) => Promise<void>;
   gotoChunk: (direction: "next" | "prev") => void;
+  goBack: () => void;
+  goForward: () => void;
   destroy: () => void;
 }
 
@@ -370,6 +466,7 @@ export function mountMergeView(host: HTMLElement): MergeController {
   ref.views.b = viewB;
 
   equalize = equalizePaneHeights(viewA, viewB);
+  const editNav = installEditNav(viewA, viewB);
 
   // Initial diff after both views exist.
   recompute();
@@ -470,6 +567,7 @@ export function mountMergeView(host: HTMLElement): MergeController {
     disposeScrollLockEffect();
     stopScrollSync?.();
     equalize?.dispose();
+    editNav.dispose();
     viewA.destroy();
     viewB.destroy();
     wrapper.remove();
@@ -477,7 +575,15 @@ export function mountMergeView(host: HTMLElement): MergeController {
 
   document.documentElement.dataset.theme = mode;
 
-  return { setDocs, setTheme, setLanguage, gotoChunk, destroy };
+  return {
+    setDocs,
+    setTheme,
+    setLanguage,
+    gotoChunk,
+    goBack: editNav.goBack,
+    goForward: editNav.goForward,
+    destroy,
+  };
 }
 
 export { EditorState };

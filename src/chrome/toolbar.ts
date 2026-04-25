@@ -1,5 +1,7 @@
 import { effect } from "@preact/signals-core";
 import {
+  canEditBack,
+  canEditForward,
   diffStats,
   historyOpen,
   manualLanguage,
@@ -22,10 +24,20 @@ const THEME_ICON: Record<ThemePreference, string> = {
 
 export interface ToolbarHandlers {
   gotoChunk: (direction: "next" | "prev") => void;
+  goBack: () => void;
+  goForward: () => void;
 }
 
 export function mountToolbar(host: HTMLElement, handlers: ToolbarHandlers): void {
   host.innerHTML = `
+    <div class="tb-nav">
+      <button class="tb-btn tb-nav-btn" data-action="nav-back" title="Back" aria-label="Back" disabled>
+        <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M10 3 5 8l5 5"/></svg>
+      </button>
+      <button class="tb-btn tb-nav-btn" data-action="nav-forward" title="Forward" aria-label="Forward" disabled>
+        <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="m6 3 5 5-5 5"/></svg>
+      </button>
+    </div>
     <div class="tb-lang">
       <button class="tb-btn tb-lang-trigger" data-action="lang" aria-haspopup="menu" aria-expanded="false"></button>
       <div class="tb-menu tb-lang-menu" role="menu" hidden>
@@ -116,6 +128,16 @@ export function mountToolbar(host: HTMLElement, handlers: ToolbarHandlers): void
   });
   prevDiffBtn.addEventListener("click", () => handlers.gotoChunk("prev"));
   nextDiffBtn.addEventListener("click", () => handlers.gotoChunk("next"));
+
+  // Back / forward edit-history navigation.
+  const navBackBtn = host.querySelector<HTMLButtonElement>('[data-action="nav-back"]')!;
+  const navForwardBtn = host.querySelector<HTMLButtonElement>('[data-action="nav-forward"]')!;
+  navBackBtn.addEventListener("click", () => handlers.goBack());
+  navForwardBtn.addEventListener("click", () => handlers.goForward());
+  effect(() => {
+    navBackBtn.disabled = !canEditBack.value;
+    navForwardBtn.disabled = !canEditForward.value;
+  });
 
   const LOCK_CLOSED = `<svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="7" width="10" height="7" rx="1.5"/><path d="M5 7V5a3 3 0 0 1 6 0v2"/></svg>`;
   const LOCK_OPEN = `<svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="7" width="10" height="7" rx="1.5"/><path d="M5 7V5a3 3 0 0 1 5.5-1.2"/></svg>`;

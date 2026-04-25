@@ -26,7 +26,11 @@ async function main(): Promise<void> {
 
   const merge = mountMergeView(appHost);
   mountSwapHover(appHost);
-  mountToolbar(toolbarHost, { gotoChunk: merge.gotoChunk });
+  mountToolbar(toolbarHost, {
+    gotoChunk: merge.gotoChunk,
+    goBack: merge.goBack,
+    goForward: merge.goForward,
+  });
   mountHistoryDrawer(drawerHost);
   installShortcuts({ gotoChunk: merge.gotoChunk });
 
