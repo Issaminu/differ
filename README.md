@@ -2,7 +2,7 @@
   <img src="src-tauri/icons/128x128@2x.png" width="128" height="128" alt="Differ app icon" />
 </p>
 
-# differ
+# Differ
 
 Type in either side, see instant green/red diffs with syntax highlighting and auto language detection. Native macOS shell via [Tauri 2](https://v2.tauri.app/), diff UI via [`@codemirror/merge`](https://codemirror.net/docs/ref/#merge).
 
@@ -28,7 +28,7 @@ First run compiles the Rust side and takes a few minutes. Subsequent runs are fa
 bun tauri build
 ```
 
-Produces `src-tauri/target/release/bundle/macos/differ.app` and a `.dmg`.
+Produces `src-tauri/target/release/bundle/macos/Differ.app` and a `.dmg`.
 
 ## Keyboard shortcuts
 
@@ -51,7 +51,7 @@ Produces `src-tauri/target/release/bundle/macos/differ.app` and a `.dmg`.
 | Light/dark CodeMirror themes | [src/theme/](src/theme/) |
 | History UI + IPC client | [src/history/](src/history/) |
 | Rust history store + dedupe | [src-tauri/src/](src-tauri/src/) |
-| Persisted history JSON | `~/Library/Application Support/com.boubcherissam.differ/history.json` |
+| Persisted history JSON | `~/Library/Application Support/com.issaminu.differ/history.json` |
 
 ## Architecture notes
 
@@ -89,4 +89,4 @@ Rough workflow (full Xcode required once to compile the catalog):
 
 ## Sandbox / network
 
-The frontend CSP disallows remote origins. Tauri's IPC is the only non-self connection. Verify with `nettop -p differ` — zero outbound traffic during normal use.
+The frontend CSP disallows remote origins. Tauri's IPC is the only non-self connection. Verify with `nettop -p Differ` — zero outbound traffic during normal use.
