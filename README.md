@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="public/app-icon.png" width="128" height="128" alt="Differ app icon" />
+  <img src="src-tauri/icons/128x128@2x.png" width="128" height="128" alt="Differ app icon" />
 </p>
 
 # differ
@@ -64,17 +64,28 @@ Produces `src-tauri/target/release/bundle/macos/differ.app` and a `.dmg`.
 
 ## Icons (for release bundles)
 
-Bundled platform icons live in [`src-tauri/icons/`](src-tauri/icons/). Regenerate from the 1024×1024 master after editing it:
+Canonical **1024×1024** master: [`src-tauri/icons/app-icon-1024.png`](src-tauri/icons/app-icon-1024.png). [`bun tauri icon`](https://v2.tauri.app/develop/icons/) reads that file and writes the rest of [`src-tauri/icons/`](src-tauri/icons/) (`icon.icns`, `icon.ico`, sized PNGs, etc.). [`tauri.conf.json`](src-tauri/tauri.conf.json) `bundle.icon` lists those generated paths for the installer and Dock.
+
+Regenerate bundle assets and sync the in-app / Vite copy used by Preferences → About:
 
 ```sh
-bun tauri icon src-tauri/icons/app-icon-source-1024.png
+bun run icons
 ```
 
-The in-app About screen and [`public/app-icon.png`](public/app-icon.png) (README hero) use a 256×256 export; after regenerating icons, refresh that file if the artwork changed:
+That command also copies `src-tauri/icons/128x128@2x.png` → [`public/app-icon.png`](public/app-icon.png) (served at `/app-icon.png` in the UI). Replace `app-icon-1024.png` with your own square PNG, then run `bun run icons` again.
 
-```sh
-cp src-tauri/icons/128x128@2x.png public/app-icon.png
-```
+### macOS “Liquid Glass” auto-rendering (macOS 26+)
+
+System-tinted / layered Dock icons on macOS 26+ use Icon Composer’s **`.icon`** bundle, compiled with Xcode’s **`actool`** into `Assets.car`, not the single master PNG alone. Apple’s tooling rasterizes variants from the composed icon.
+
+Rough workflow (full Xcode required once to compile the catalog):
+
+1. Build the icon in [Icon Composer](https://developer.apple.com/icon-composer/), export a `.icon` bundle (e.g. into `branding/`).
+2. Run `./scripts/compile-macos-liquid-assets.sh /path/to/your.icon` (set `APP_ICON_NAME` if your catalog name differs from `AppIcon`; it must match `--app-icon` / `CFBundleIconName`).
+3. Add the catalog to the app bundle and name it in `Info.plist` (see [Tauri macOS bundle](https://v2.tauri.app/distribute/macos-application-bundle/) and [this overview](https://www.hendrik-erz.de/post/supporting-liquid-glass-icons-in-apps-without-xcode)): e.g. `bundle.macOS.files` → map `Resources/Assets.car` to `src-tauri/resources/macos/Assets.car`, and merge `CFBundleIconName` with the same string you passed to `actool`.
+4. **Keep** `icons/icon.icns` in `tauri.conf.json` so older macOS still has a normal icon.
+
+`Assets.car` is gitignored until you choose to commit a prebuilt catalog for CI.
 
 ## Sandbox / network
 

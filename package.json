@@ -7,7 +7,8 @@
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview",
-    "tauri": "tauri"
+    "tauri": "tauri",
+    "icons": "tauri icon src-tauri/icons/app-icon-1024.png && cp src-tauri/icons/128x128@2x.png public/app-icon.png"
   },
   "dependencies": {
     "@codemirror/autocomplete": "^6.18.0",

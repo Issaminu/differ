@@ -15,6 +15,9 @@ dist/
 ## Tauri / Rust
 src-tauri/target/
 src-tauri/gen/
+# Built on a Mac with Xcode from Icon Composer output (see scripts/compile-macos-liquid-assets.sh)
+src-tauri/resources/macos/Assets.car
+src-tauri/resources/macos/assetcatalog_generated_info.plist
 
 ## Editors
 *.swp
