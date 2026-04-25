@@ -52,6 +52,15 @@ html, body {
   font-family: var(--font-ui);
   -webkit-font-smoothing: antialiased;
   overflow: hidden;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+input,
+textarea,
+select {
+  user-select: text;
+  -webkit-user-select: text;
 }
 
 /* Window has an NSVisualEffectView (sidebar material) applied by Tauri.
@@ -632,6 +641,8 @@ body {
   font-size: 13px;
   background: transparent;
   min-height: 0;
+  user-select: text;
+  -webkit-user-select: text;
 }
 
 .cm-editor .cm-scroller {
