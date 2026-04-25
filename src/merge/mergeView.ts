@@ -125,22 +125,6 @@ function decorationsExt(side: "a" | "b"): Extension {
   );
 }
 
-// VSCode-style scroll-past-end: pad .cm-content with bottom space equal to
-// (viewportHeight − one line) so the last line can scroll all the way to
-// the top of the viewport instead of stopping at the bottom.
-function installScrollPastEnd(view: EditorView): () => void {
-  const update = () => {
-    const lineH = view.defaultLineHeight;
-    const clientH = view.scrollDOM.clientHeight;
-    const padding = Math.max(0, clientH - lineH);
-    view.contentDOM.style.paddingBottom = `${padding}px`;
-  };
-  const observer = new ResizeObserver(update);
-  observer.observe(view.scrollDOM);
-  update();
-  return () => observer.disconnect();
-}
-
 function syncScroll(a: HTMLElement, b: HTMLElement): () => void {
   let lastSetA = -1;
   let lastSetB = -1;
@@ -281,9 +265,6 @@ export function mountMergeView(host: HTMLElement): MergeController {
   // Initial diff after both views exist.
   recompute();
 
-  const stopScrollPastEndA = installScrollPastEnd(viewA);
-  const stopScrollPastEndB = installScrollPastEnd(viewB);
-
   // Scroll sync, attached only while locked.
   let stopScrollSync: (() => void) | null = null;
   const disposeScrollLockEffect = effect(() => {
@@ -342,8 +323,6 @@ export function mountMergeView(host: HTMLElement): MergeController {
     document.removeEventListener("keydown", onFnTab, true);
     disposeScrollLockEffect();
     stopScrollSync?.();
-    stopScrollPastEndA();
-    stopScrollPastEndB();
     viewA.destroy();
     viewB.destroy();
     wrapper.remove();
