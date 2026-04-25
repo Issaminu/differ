@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
+    "build:web": "VITE_TARGET=web tsc --noEmit && VITE_TARGET=web vite build",
     "preview": "vite preview",
     "tauri": "tauri",
     "icons": "tauri icon src-tauri/icons/app-icon-1024.png && cp src-tauri/icons/128x128@2x.png public/app-icon.png"
@@ -31,6 +32,6 @@
     "@tauri-apps/cli": "^2.1.0",
     "@types/node": "^22.0.0",
     "typescript": "^5.6.0",
-    "vite": "^5.4.0"
+    "vite": "^8.0.10"
   }
 }

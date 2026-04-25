@@ -1,4 +1,3 @@
-import { invoke } from "@tauri-apps/api/core";
 import type { HistoryEntry } from "../state";
 
 export interface HistoryFile {
@@ -6,28 +5,19 @@ export interface HistoryFile {
   entries: HistoryEntry[];
 }
 
-export async function loadHistory(): Promise<HistoryFile> {
-  return await invoke<HistoryFile>("history_load");
-}
+// Vite replaces `import.meta.env.VITE_TARGET` with a string literal at build
+// time, so the unused branch is constant-folded and tree-shaken.
+const impl =
+  import.meta.env.VITE_TARGET === "web"
+    ? await import("./api.web")
+    : await import("./api.tauri");
 
-export async function captureHistory(
+export const loadHistory: () => Promise<HistoryFile> = impl.loadHistory;
+export const captureHistory: (
   original: string,
   modified: string,
   language: string,
-  force = false,
-): Promise<HistoryFile> {
-  return await invoke<HistoryFile>("history_capture", {
-    original,
-    modified,
-    language,
-    force,
-  });
-}
-
-export async function deleteHistory(id: string): Promise<HistoryFile> {
-  return await invoke<HistoryFile>("history_delete", { id });
-}
-
-export async function clearHistory(): Promise<HistoryFile> {
-  return await invoke<HistoryFile>("history_clear");
-}
+  force?: boolean,
+) => Promise<HistoryFile> = impl.captureHistory;
+export const deleteHistory: (id: string) => Promise<HistoryFile> = impl.deleteHistory;
+export const clearHistory: () => Promise<HistoryFile> = impl.clearHistory;
