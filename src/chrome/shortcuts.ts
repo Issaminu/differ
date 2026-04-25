@@ -13,6 +13,8 @@ function isMetaOrCtrl(e: KeyboardEvent): boolean {
 
 export interface ShortcutHandlers {
   gotoChunk: (direction: "next" | "prev") => void;
+  goBack: () => void;
+  goForward: () => void;
 }
 
 export function installShortcuts(handlers: ShortcutHandlers): () => void {
@@ -34,6 +36,19 @@ export function installShortcuts(handlers: ShortcutHandlers): () => void {
     if (!isMetaOrCtrl(e)) return;
 
     const k = e.key.toLowerCase();
+
+    // ⌘Z / ⌘⇧Z (and ⌘Y) — unified back/forward across both panes.
+    if (k === "z" && !e.altKey) {
+      e.preventDefault();
+      if (e.shiftKey) handlers.goForward();
+      else handlers.goBack();
+      return;
+    }
+    if (k === "y" && !e.shiftKey && !e.altKey) {
+      e.preventDefault();
+      handlers.goForward();
+      return;
+    }
 
     // ⌘F — open search and always focus the Find field (CM's default would
     // leave Replace focused if it was the last field used).

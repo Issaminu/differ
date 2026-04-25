@@ -22,8 +22,6 @@ import {
 } from "@codemirror/view";
 import {
   defaultKeymap,
-  history,
-  historyKeymap,
   indentLess,
   insertTab,
 } from "@codemirror/commands";
@@ -368,7 +366,6 @@ function baseExtensions(
     highlightActiveLineGutter(),
     bracketMatching(),
     closeBrackets(),
-    history(),
     search({ createPanel: createSearchPanel, top: true }),
     keymap.of([
       { key: "Ctrl-Tab", run: switchRun, shift: switchRun, preventDefault: true },
@@ -376,7 +373,6 @@ function baseExtensions(
       ...closeBracketsKeymap,
       ...defaultKeymap,
       ...searchKeymap,
-      ...historyKeymap,
     ]),
     EditorView.lineWrapping,
     themeComp.of(themeExt(mode)),

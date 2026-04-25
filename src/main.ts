@@ -32,7 +32,11 @@ async function main(): Promise<void> {
     goForward: merge.goForward,
   });
   mountHistoryDrawer(drawerHost);
-  installShortcuts({ gotoChunk: merge.gotoChunk });
+  installShortcuts({
+    gotoChunk: merge.gotoChunk,
+    goBack: merge.goBack,
+    goForward: merge.goForward,
+  });
 
   // Resolved theme = preference, unless "system" (then follow OS).
   // Also push the choice down to the native window so NSVisualEffectView
