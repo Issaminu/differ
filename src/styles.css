@@ -123,6 +123,19 @@ body {
 .tb-btn.ghost { background: transparent; }
 .tb-spacer { flex: 1; }
 
+.diff-stats {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font: 600 11px var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  padding: 0 4px;
+  -webkit-app-region: no-drag;
+}
+.diff-stats[hidden] { display: none; }
+.diff-stat-added { color: rgb(70, 180, 90); }
+.diff-stat-removed { color: rgb(225, 90, 90); }
+
 .tb-theme,
 .tb-lang {
   position: relative;
@@ -359,6 +372,17 @@ body {
 
 .differ-pane[data-side="a"] .cm-changedText { background: var(--del-bg-strong); }
 .differ-pane[data-side="b"] .cm-changedText { background: var(--add-bg-strong); }
+
+/* Tint the gutter (line number) on changed lines so changes stay visible
+   while scrolling long diffs. Red on the original side, green on the new. */
+.cm-removedLineGutter {
+  background: var(--del-bg);
+  color: var(--del-fg, rgb(255, 100, 100));
+}
+.cm-addedLineGutter {
+  background: var(--add-bg);
+  color: var(--add-fg, rgb(70, 180, 90));
+}
 
 
 /* VSCode-style search widget.

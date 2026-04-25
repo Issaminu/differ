@@ -2,6 +2,7 @@ import { Chunk } from "@codemirror/merge";
 import {
   Compartment,
   EditorState,
+  RangeSet,
   StateEffect,
   StateField,
   Text,
@@ -11,7 +12,9 @@ import {
   Decoration,
   type DecorationSet,
   EditorView,
+  GutterMarker,
   drawSelection,
+  gutterLineClass,
   highlightActiveLine,
   highlightActiveLineGutter,
   keymap,
@@ -31,6 +34,7 @@ import { effect } from "@preact/signals-core";
 
 import { createSearchPanel } from "./searchPanel";
 import {
+  diffStats,
   modifiedText,
   originalText,
   scrollLocked,
@@ -123,6 +127,49 @@ function decorationsExt(side: "a" | "b"): Extension {
     [chunksField, "doc"],
     (state) => buildDecorations(side, state.field(chunksField), state.doc),
   );
+}
+
+class ChangedGutterMarker extends GutterMarker {
+  constructor(public override readonly elementClass: string) {
+    super();
+  }
+}
+
+const removedMarker = new ChangedGutterMarker("cm-changedLineGutter cm-removedLineGutter");
+const addedMarker = new ChangedGutterMarker("cm-changedLineGutter cm-addedLineGutter");
+
+// Tint the gutter (line number) for each changed line so the user can spot
+// changes while scrolling massive diffs.
+function gutterLineClassExt(side: "a" | "b"): Extension {
+  const marker = side === "a" ? removedMarker : addedMarker;
+  return gutterLineClass.compute([chunksField, "doc"], (state) => {
+    const chunks = state.field(chunksField);
+    const ranges: { from: number; marker: GutterMarker }[] = [];
+    for (const chunk of chunks) {
+      const fromOnSide = side === "a" ? chunk.fromA : chunk.fromB;
+      const toOnSide = side === "a" ? chunk.endA : chunk.endB;
+      if (toOnSide <= fromOnSide) continue;
+      let pos = fromOnSide;
+      const max = Math.min(toOnSide, state.doc.length);
+      while (pos <= max) {
+        const line = state.doc.lineAt(pos);
+        ranges.push({ from: line.from, marker });
+        if (line.to >= max) break;
+        pos = line.to + 1;
+      }
+    }
+    return RangeSet.of(
+      ranges.map((r) => r.marker.range(r.from)),
+      true,
+    );
+  });
+}
+
+function countChangedLines(doc: Text, from: number, end: number): number {
+  if (end <= from || doc.length === 0) return 0;
+  const startLine = doc.lineAt(from).number;
+  const endLine = doc.lineAt(Math.min(end - 1, doc.length - 1)).number;
+  return endLine - startLine + 1;
 }
 
 // When the sync lock is on, pad the shorter pane's `.cm-content` so both
@@ -242,6 +289,7 @@ function baseExtensions(
     langComp.of([]),
     chunksField,
     decorationsExt(side),
+    gutterLineClassExt(side),
     EditorView.updateListener.of((u) => {
       if (!u.docChanged) return;
       const text = u.state.doc.toString();
@@ -286,9 +334,20 @@ export function mountMergeView(host: HTMLElement): MergeController {
     const viewA = ref.views.a;
     const viewB = ref.views.b;
     if (!viewA || !viewB) return;
-    const chunks = Chunk.build(viewA.state.doc, viewB.state.doc);
+    const docA = viewA.state.doc;
+    const docB = viewB.state.doc;
+    const chunks = Chunk.build(docA, docB);
     viewA.dispatch({ effects: setChunks.of(chunks) });
     viewB.dispatch({ effects: setChunks.of(chunks) });
+
+    let added = 0;
+    let removed = 0;
+    for (const chunk of chunks) {
+      removed += countChangedLines(docA, chunk.fromA, chunk.endA);
+      added += countChangedLines(docB, chunk.fromB, chunk.endB);
+    }
+    diffStats.value = { added, removed };
+
     equalize?.update();
   };
 

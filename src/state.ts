@@ -53,6 +53,11 @@ export interface HistoryEntry {
 
 export const historyEntries = signal<HistoryEntry[]>([]);
 
+export const diffStats = signal<{ added: number; removed: number }>({
+  added: 0,
+  removed: 0,
+});
+
 export function resetBothDocs(): void {
   originalText.value = "";
   modifiedText.value = "";

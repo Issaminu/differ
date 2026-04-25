@@ -1,5 +1,6 @@
 import { effect } from "@preact/signals-core";
 import {
+  diffStats,
   historyOpen,
   manualLanguage,
   activeLanguage,
@@ -27,6 +28,10 @@ export function mountToolbar(host: HTMLElement): void {
         <input class="tb-lang-search" type="text" placeholder="Search…" autocomplete="off" spellcheck="false" />
         <div class="tb-lang-list" role="none"></div>
       </div>
+    </div>
+    <div class="diff-stats" aria-label="Diff summary" hidden>
+      <span class="diff-stat-added"></span>
+      <span class="diff-stat-removed"></span>
     </div>
     <div class="tb-spacer" data-tauri-drag-region></div>
     <button class="tb-btn" data-action="scroll-lock" aria-label="Lock scroll"></button>
@@ -85,6 +90,17 @@ export function mountToolbar(host: HTMLElement): void {
 
   scrollLockBtn.addEventListener("click", () => {
     setScrollLocked(!scrollLocked.peek());
+  });
+
+  // Diff stats display: GitHub-style +N / -N counts.
+  const statsEl = host.querySelector<HTMLDivElement>(".diff-stats")!;
+  const addedEl = statsEl.querySelector<HTMLSpanElement>(".diff-stat-added")!;
+  const removedEl = statsEl.querySelector<HTMLSpanElement>(".diff-stat-removed")!;
+  effect(() => {
+    const { added, removed } = diffStats.value;
+    addedEl.textContent = `+${added}`;
+    removedEl.textContent = `−${removed}`;
+    statsEl.hidden = added === 0 && removed === 0;
   });
 
   const LOCK_CLOSED = `<svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="7" width="10" height="7" rx="1.5"/><path d="M5 7V5a3 3 0 0 1 6 0v2"/></svg>`;
