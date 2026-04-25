@@ -247,33 +247,28 @@ body {
   overflow: hidden;
 }
 
-/* Per-pane fill-height + internal scroll (paired with the fillHeightTheme in
-   mergeView.ts). The outer .cm-mergeView fills #app; each pane fills its
-   share of the flex row; each .cm-scroller handles its own scroll. The
-   library auto-syncs scroll between the two panes. */
-#app > .cm-mergeView {
+/* Custom merge layout. We mount two independent EditorView instances side
+   by side; CodeMirror handles its own height/scroll inside each pane, no
+   inline !important overrides needed. */
+#app > .differ-merge {
   position: absolute;
   inset: 0;
-  overflow: hidden;
+  display: flex;
 }
 
-.cm-mergeView,
-.cm-mergeViewEditors {
-  height: 100%;
-  min-height: 0;
-}
-
-.cm-mergeView .cm-merge-a,
-.cm-mergeView .cm-merge-b {
-  height: 100%;
+.differ-pane {
+  flex: 1 1 0;
   min-width: 0;
-  min-height: 0;
-  overflow: hidden;
+  height: 100%;
+  position: relative;
 }
 
-/* Full-height separator between panes — drawn on #app (fixed viewport size)
-   rather than on .cm-mergeViewEditors (content-height, shrinks with content). */
-#app::after {
+.differ-pane .cm-editor {
+  height: 100%;
+}
+
+/* Full-height separator between panes — drawn on the wrapper. */
+.differ-merge::after {
   content: "";
   position: absolute;
   top: 0;
@@ -301,10 +296,10 @@ body {
 
 /* Scroll-lock: only show the right pane's scrollbar; the left is driven via
    sync so its native indicator would be redundant. */
-:root[data-scroll-locked="true"] .cm-mergeView .cm-merge-a .cm-scroller {
+:root[data-scroll-locked="true"] .differ-pane[data-side="a"] .cm-scroller {
   scrollbar-width: none;
 }
-:root[data-scroll-locked="true"] .cm-mergeView .cm-merge-a .cm-scroller::-webkit-scrollbar {
+:root[data-scroll-locked="true"] .differ-pane[data-side="a"] .cm-scroller::-webkit-scrollbar {
   width: 0;
   height: 0;
   display: none;
@@ -362,15 +357,8 @@ body {
 
 .cm-changedLine { background: transparent !important; }
 
-.cm-mergeView .cm-merge-a .cm-changedText { background: var(--del-bg-strong); }
-.cm-mergeView .cm-merge-b .cm-changedText { background: var(--add-bg-strong); }
-
-.cm-mergeView .cm-merge-a .cm-deletedChunk { background: var(--del-bg); }
-.cm-mergeView .cm-merge-b .cm-deletedChunk { background: var(--add-bg); }
-.cm-mergeView .cm-merge-a .cm-deletedChunk .cm-deletedText { background: var(--del-bg-strong); }
-.cm-mergeView .cm-merge-b .cm-deletedChunk .cm-deletedText { background: var(--add-bg-strong); }
-
-.cm-mergeView .cm-changeGutter .cm-changedLineGutter { background: transparent; }
+.differ-pane[data-side="a"] .cm-changedText { background: var(--del-bg-strong); }
+.differ-pane[data-side="b"] .cm-changedText { background: var(--add-bg-strong); }
 
 
 /* VSCode-style search widget.
