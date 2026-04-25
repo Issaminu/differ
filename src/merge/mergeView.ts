@@ -125,6 +125,49 @@ function decorationsExt(side: "a" | "b"): Extension {
   );
 }
 
+// When the sync lock is on, pad the shorter pane's `.cm-content` so both
+// panes have equal scrollable height — scrolling either side covers the
+// longer pane's full range. When unlocked, padding is cleared so each pane
+// stops at its own last line. Re-runs on lock toggle and on every recompute
+// (doc edits change which side is shorter and by how much).
+function equalizePaneHeights(
+  viewA: EditorView,
+  viewB: EditorView,
+): { update: () => void; dispose: () => void } {
+  const update = () => {
+    const cA = viewA.contentDOM;
+    const cB = viewB.contentDOM;
+    const aPad = parseFloat(cA.style.paddingBottom) || 0;
+    const bPad = parseFloat(cB.style.paddingBottom) || 0;
+
+    let newAPad = 0;
+    let newBPad = 0;
+    if (scrollLocked.peek()) {
+      // contentHeight includes our own padding contribution; subtract it
+      // back out to get the true natural height of each side's content.
+      const aH = viewA.contentHeight - aPad;
+      const bH = viewB.contentHeight - bPad;
+      const target = Math.max(aH, bH);
+      newAPad = Math.max(0, target - aH);
+      newBPad = Math.max(0, target - bH);
+    }
+
+    if (Math.round(newAPad) !== Math.round(aPad)) {
+      cA.style.paddingBottom = newAPad > 0 ? `${newAPad}px` : "";
+    }
+    if (Math.round(newBPad) !== Math.round(bPad)) {
+      cB.style.paddingBottom = newBPad > 0 ? `${newBPad}px` : "";
+    }
+  };
+
+  const disposeLockEffect = effect(() => {
+    scrollLocked.value;
+    update();
+  });
+
+  return { update, dispose: disposeLockEffect };
+}
+
 function syncScroll(a: HTMLElement, b: HTMLElement): () => void {
   let lastSetA = -1;
   let lastSetB = -1;
@@ -236,6 +279,9 @@ export function mountMergeView(host: HTMLElement): MergeController {
   wrapper.append(paneA, paneB);
   host.append(wrapper);
 
+  let equalize:
+    | { update: () => void; dispose: () => void }
+    | null = null;
   const recompute = () => {
     const viewA = ref.views.a;
     const viewB = ref.views.b;
@@ -243,6 +289,7 @@ export function mountMergeView(host: HTMLElement): MergeController {
     const chunks = Chunk.build(viewA.state.doc, viewB.state.doc);
     viewA.dispatch({ effects: setChunks.of(chunks) });
     viewB.dispatch({ effects: setChunks.of(chunks) });
+    equalize?.update();
   };
 
   const viewA = new EditorView({
@@ -261,6 +308,8 @@ export function mountMergeView(host: HTMLElement): MergeController {
   });
   ref.views.a = viewA;
   ref.views.b = viewB;
+
+  equalize = equalizePaneHeights(viewA, viewB);
 
   // Initial diff after both views exist.
   recompute();
@@ -323,6 +372,7 @@ export function mountMergeView(host: HTMLElement): MergeController {
     document.removeEventListener("keydown", onFnTab, true);
     disposeScrollLockEffect();
     stopScrollSync?.();
+    equalize?.dispose();
     viewA.destroy();
     viewB.destroy();
     wrapper.remove();
