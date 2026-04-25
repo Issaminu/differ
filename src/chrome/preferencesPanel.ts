@@ -1,7 +1,9 @@
 import { effect } from "@preact/signals-core";
+import { openUrl } from "@tauri-apps/plugin-opener";
 
 import pkg from "../../package.json";
 import { Keyboard, RotateCcw, Settings, X } from "lucide";
+import { siGithub, siX } from "simple-icons";
 import {
   getShortcutInputDisplay,
   resetAllShortcutInputs,
@@ -17,6 +19,17 @@ const PREFS_ICON = lucideSvg(Settings, { size: 16 });
 const PREF_CLOSE_ICON = lucideSvg(X, { size: 14 });
 const SHORTCUT_RESET_ICON = lucideSvg(RotateCcw, { size: 14 });
 const SHORTCUT_CAPTURE_ICON = lucideSvg(Keyboard, { size: 14 });
+
+const ABOUT_GITHUB_REPO_URL = "https://github.com/Issaminu/differ";
+const ABOUT_X_PROFILE_URL = "https://x.com/Issaminuu";
+
+function simpleIconSvg(icon: { path: string }, size: number, className?: string): string {
+  const cls = className ? ` class="${className}"` : "";
+  return `<svg${cls} xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="${icon.path}"/></svg>`;
+}
+
+const ABOUT_GITHUB_ICON = simpleIconSvg(siGithub, 18, "pref-about-link-icon");
+const ABOUT_X_ICON = simpleIconSvg(siX, 18, "pref-about-link-icon");
 
 type PreferencesTab = "shortcuts" | "about";
 
@@ -53,22 +66,21 @@ export function mountPreferencesPanel(host: HTMLElement): PreferencesPanelContro
           </section>
           <section class="pref-view" data-view="about" hidden>
             <div class="pref-about">
-              <div class="pref-about-name">Differ</div>
-              <div class="pref-about-version">Version ${pkg.version}</div>
+              <div class="pref-about-hero">
+                <div class="pref-about-hero-text">
+                  <div class="pref-about-name">Differ</div>
+                  <div class="pref-about-version">Version ${pkg.version}</div>
+                </div>
+                <div class="pref-about-app-icon" role="img" aria-label="App icon (placeholder)"></div>
+              </div>
               <p class="pref-about-copy">A native two-pane diff shell built for fast editing, shared history navigation, and lightweight snapshot recall.</p>
-              <div class="pref-about-grid">
-                <div class="pref-about-item">
-                  <div class="pref-label">Runtime</div>
-                  <div class="pref-help">Tauri 2</div>
-                </div>
-                <div class="pref-about-item">
-                  <div class="pref-label">Editor</div>
-                  <div class="pref-help">CodeMirror 6 merge view</div>
-                </div>
-                <div class="pref-about-item">
-                  <div class="pref-label">History</div>
-                  <div class="pref-help">Local snapshots with dedupe</div>
-                </div>
+              <div class="pref-about-links">
+                <a class="pref-about-link" href="${ABOUT_X_PROFILE_URL}" target="_blank" rel="noopener noreferrer" aria-label="Open profile on X in your browser">
+                  ${ABOUT_X_ICON}
+                </a>
+                <a class="pref-about-link" href="${ABOUT_GITHUB_REPO_URL}" target="_blank" rel="noopener noreferrer" aria-label="Open repository on GitHub in your browser">
+                  ${ABOUT_GITHUB_ICON}
+                </a>
               </div>
             </div>
           </section>
@@ -90,6 +102,17 @@ export function mountPreferencesPanel(host: HTMLElement): PreferencesPanelContro
   );
   const resetShortcutsBtn = host.querySelector<HTMLButtonElement>('[data-action="reset-shortcuts"]')!;
   const shortcutsList = host.querySelector<HTMLDivElement>(".pref-shortcuts-list")!;
+
+  for (const link of host.querySelectorAll<HTMLAnchorElement>(".pref-about-link")) {
+    link.addEventListener("click", (event) => {
+      const url = link.getAttribute("href");
+      if (!url) return;
+      event.preventDefault();
+      void openUrl(url).catch(() => {
+        window.open(url, "_blank", "noopener,noreferrer");
+      });
+    });
+  }
 
   let activeTab: PreferencesTab = "shortcuts";
   let captureTargetId: ShortcutActionId | null = null;

@@ -644,18 +644,43 @@ body {
 .pref-about {
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 14px;
+}
+
+.pref-about-hero {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.pref-about-hero-text {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
 }
 
 .pref-about-name {
   font-size: 18px;
   font-weight: 600;
   color: var(--fg);
+  line-height: 1.2;
 }
 
 .pref-about-version {
   font-size: 11px;
   color: var(--fg-muted);
+}
+
+.pref-about-app-icon {
+  flex-shrink: 0;
+  width: 52px;
+  height: 52px;
+  border-radius: 12px;
+  border: 1px dashed color-mix(in srgb, var(--border-strong) 70%, var(--fg) 8%);
+  background: color-mix(in srgb, var(--bg-elevated) 88%, transparent);
 }
 
 .pref-about-copy {
@@ -666,15 +691,40 @@ body {
   color: var(--fg-muted);
 }
 
-.pref-about-grid {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 12px;
-  padding-top: 6px;
+.pref-about-links {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
 }
 
-.pref-about-item {
-  min-width: 0;
+.pref-about-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--bg-elevated);
+  color: var(--fg);
+  font-size: 12px;
+  font-weight: 500;
+  text-decoration: none;
+  transition: background 0.12s ease, border-color 0.12s ease, color 0.12s ease;
+}
+.pref-about-link:hover {
+  background: var(--bg-opaque);
+  border-color: var(--border-strong);
+  color: var(--fg);
+}
+.pref-about-link:focus-visible {
+  outline: 2px solid var(--chrome-focus-ring);
+  outline-offset: 2px;
+}
+
+.pref-about-link-icon {
+  flex-shrink: 0;
+  display: block;
 }
 
 

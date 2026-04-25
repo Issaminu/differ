@@ -24,6 +24,7 @@ fn main() {
 
     tauri::Builder::default()
         .plugin(tauri_plugin_clipboard_manager::init())
+        .plugin(tauri_plugin_opener::init())
         .setup(move |app| {
             #[cfg(target_os = "macos")]
             macos::disable_webview_scroll_elasticity(app);
