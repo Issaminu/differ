@@ -258,11 +258,11 @@ export function mountToolbar(host: HTMLElement, handlers: ToolbarHandlers): void
 
   themeBtn.addEventListener("click", (e) => {
     e.stopPropagation();
-    setThemeMenuOpen(themeMenu.hidden);
+    setThemeMenuOpen(!!themeMenu.hidden);
   });
   langBtn.addEventListener("click", (e) => {
     e.stopPropagation();
-    setLangMenuOpen(langMenu.hidden);
+    setLangMenuOpen(!!langMenu.hidden);
   });
 
   themeItems.forEach((item) => {

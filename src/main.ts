@@ -1,5 +1,4 @@
 import { effect } from "@preact/signals-core";
-import { getCurrentWindow } from "@tauri-apps/api/window";
 
 import {
   originalText,
@@ -43,11 +42,14 @@ async function main(): Promise<void> {
   // picks the matching light/dark variant (sidebar material looks dark on
   // a dark-appearance window even if CSS is light-themed).
   const mq = window.matchMedia("(prefers-color-scheme: dark)");
-  const appWindow = getCurrentWindow();
+  const appWindow =
+    import.meta.env.VITE_TARGET === "web"
+      ? null
+      : (await import("@tauri-apps/api/window")).getCurrentWindow();
   const applyTheme = () => {
     const pref = themePreference.value;
     themeMode.value = pref === "system" ? (mq.matches ? "dark" : "light") : pref;
-    appWindow.setTheme(pref === "system" ? null : pref).catch(() => {});
+    appWindow?.setTheme(pref === "system" ? null : pref).catch(() => {});
   };
   mq.addEventListener("change", applyTheme);
   effect(applyTheme);

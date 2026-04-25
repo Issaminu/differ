@@ -6,6 +6,12 @@
       "runtimeExecutable": "bun",
       "runtimeArgs": ["x", "vite", "--port", "1421", "--strictPort"],
       "port": 1421
+    },
+    {
+      "name": "web-preview",
+      "runtimeExecutable": "bun",
+      "runtimeArgs": ["x", "vite", "preview", "--port", "1422", "--strictPort"],
+      "port": 1422
     }
   ]
 }

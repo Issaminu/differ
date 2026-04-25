@@ -6,31 +6,32 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
+    "build:web": "VITE_TARGET=web tsc --noEmit && VITE_TARGET=web vite build",
     "preview": "vite preview",
     "tauri": "tauri",
     "icons": "tauri icon src-tauri/icons/app-icon-1024.png && cp src-tauri/icons/128x128@2x.png public/app-icon.png"
   },
   "dependencies": {
-    "@codemirror/autocomplete": "^6.18.0",
-    "@codemirror/commands": "^6.7.0",
-    "@codemirror/language": "^6.10.0",
-    "@codemirror/language-data": "^6.5.1",
-    "@codemirror/lint": "^6.8.0",
-    "@codemirror/merge": "^6.8.0",
-    "@codemirror/search": "^6.5.0",
-    "@codemirror/state": "^6.5.0",
-    "@codemirror/view": "^6.34.0",
-    "@lezer/highlight": "^1.2.0",
-    "@preact/signals-core": "^1.8.0",
-    "@tauri-apps/api": "^2.1.1",
-    "@tauri-apps/plugin-clipboard-manager": "^2.2.0",
+    "@codemirror/autocomplete": "^6.20.1",
+    "@codemirror/commands": "^6.10.3",
+    "@codemirror/language": "^6.12.3",
+    "@codemirror/language-data": "^6.5.2",
+    "@codemirror/lint": "^6.9.5",
+    "@codemirror/merge": "^6.12.1",
+    "@codemirror/search": "^6.7.0",
+    "@codemirror/state": "^6.6.0",
+    "@codemirror/view": "^6.41.1",
+    "@lezer/highlight": "^1.2.3",
+    "@preact/signals-core": "^1.14.1",
+    "@tauri-apps/api": "^2.10.1",
+    "@tauri-apps/plugin-clipboard-manager": "^2.3.2",
     "lucide": "^1.11.0",
     "simple-icons": "^16.17.0"
   },
   "devDependencies": {
-    "@tauri-apps/cli": "^2.1.0",
-    "@types/node": "^22.0.0",
-    "typescript": "^5.6.0",
-    "vite": "^5.4.0"
+    "@tauri-apps/cli": "^2.10.1",
+    "@types/node": "^25.6.0",
+    "typescript": "^6.0.3",
+    "vite": "^8.0.10"
   }
 }

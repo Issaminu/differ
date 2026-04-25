@@ -2,9 +2,13 @@ import { defineConfig } from "vite";
 
 // Tauri expects a fixed port and no auto-open.
 const host = process.env.TAURI_DEV_HOST;
+const target = process.env.VITE_TARGET ?? "tauri";
 
 export default defineConfig({
   clearScreen: false,
+  define: {
+    "import.meta.env.VITE_TARGET": JSON.stringify(target),
+  },
   server: {
     port: 1420,
     strictPort: true,
@@ -19,7 +23,7 @@ export default defineConfig({
   envPrefix: ["VITE_", "TAURI_ENV_*"],
   build: {
     target: "safari15",
-    minify: "esbuild",
+    minify: "oxc",
     sourcemap: false,
   },
 });
