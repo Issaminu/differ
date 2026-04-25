@@ -102,14 +102,30 @@ body {
 }
 
 .tb-nav-btn {
-  padding: 6px 7px;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  justify-content: center;
+  gap: 0;
 }
+
+.tb-nav-glyph {
+  display: inline-block;
+  font-size: 15px;
+  line-height: 1;
+  font-weight: 400;
+  transform: translateY(-0.5px);
+}
+
 .tb-nav-btn:disabled {
   cursor: default;
-  opacity: 0.35;
+  opacity: 1;
+  background: transparent;
+  border-color: var(--border);
+  color: var(--fg-muted);
 }
 .tb-nav-btn:disabled:hover {
-  background: var(--bg-elevated);
+  background: transparent;
   border-color: var(--border);
 }
 

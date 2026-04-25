@@ -22,6 +22,11 @@ const THEME_ICON: Record<ThemePreference, string> = {
   dark: `<svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M21.752 15.002A9.718 9.718 0 0 1 18 15.75c-5.385 0-9.75-4.365-9.75-9.75 0-1.33.266-2.597.748-3.752A9.753 9.753 0 0 0 3 11.25C3 16.635 7.365 21 12.75 21a9.753 9.753 0 0 0 9.002-5.998z"/></svg>`,
 };
 
+const NAV_BACK_ICON = `<span class="tb-nav-glyph" aria-hidden="true">←</span>`;
+const NAV_FORWARD_ICON = `<span class="tb-nav-glyph" aria-hidden="true">→</span>`;
+const LOCK_CLOSED_FILLED = `<svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path fill-rule="evenodd" d="M8 1.5A3.5 3.5 0 0 0 4.5 5v1.5h-.75A1.75 1.75 0 0 0 2 8.25v4.5c0 .967.783 1.75 1.75 1.75h8.5A1.75 1.75 0 0 0 14 12.75v-4.5A1.75 1.75 0 0 0 12.25 6.5h-.75V5A3.5 3.5 0 0 0 8 1.5Zm2 5V5A2 2 0 1 0 6 5v1.5h4Z" clip-rule="evenodd"/></svg>`;
+const LOCK_OPEN_OUTLINE = `<svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="7" width="10" height="7" rx="1.5"/><path d="M5 7V5a3 3 0 0 1 5.5-1.2"/></svg>`;
+
 export interface ToolbarHandlers {
   gotoChunk: (direction: "next" | "prev") => void;
   goBack: () => void;
@@ -32,10 +37,10 @@ export function mountToolbar(host: HTMLElement, handlers: ToolbarHandlers): void
   host.innerHTML = `
     <div class="tb-nav">
       <button class="tb-btn tb-nav-btn" data-action="nav-back" title="Back" aria-label="Back" disabled>
-        <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M10 3 5 8l5 5"/></svg>
+        ${NAV_BACK_ICON}
       </button>
       <button class="tb-btn tb-nav-btn" data-action="nav-forward" title="Forward" aria-label="Forward" disabled>
-        <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="m6 3 5 5-5 5"/></svg>
+        ${NAV_FORWARD_ICON}
       </button>
     </div>
     <div class="tb-lang">
@@ -139,12 +144,9 @@ export function mountToolbar(host: HTMLElement, handlers: ToolbarHandlers): void
     navForwardBtn.disabled = !canEditForward.value;
   });
 
-  const LOCK_CLOSED = `<svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="7" width="10" height="7" rx="1.5"/><path d="M5 7V5a3 3 0 0 1 6 0v2"/></svg>`;
-  const LOCK_OPEN = `<svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="7" width="10" height="7" rx="1.5"/><path d="M5 7V5a3 3 0 0 1 5.5-1.2"/></svg>`;
-
   effect(() => {
     const locked = scrollLocked.value;
-    scrollLockBtn.innerHTML = locked ? LOCK_CLOSED : LOCK_OPEN;
+    scrollLockBtn.innerHTML = locked ? LOCK_CLOSED_FILLED : LOCK_OPEN_OUTLINE;
     scrollLockBtn.title = locked ? "Scroll locked — both panes move together" : "Scroll unlocked — panes scroll independently";
     scrollLockBtn.setAttribute("aria-label", locked ? "Scroll locked" : "Scroll unlocked");
     document.documentElement.dataset.scrollLocked = String(locked);
