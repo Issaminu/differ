@@ -13,6 +13,7 @@ import {
   type DecorationSet,
   EditorView,
   GutterMarker,
+  type ViewUpdate,
   drawSelection,
   gutterLineClass,
   highlightActiveLine,
@@ -215,6 +216,10 @@ function equalizePaneHeights(
   return { update, dispose: disposeLockEffect };
 }
 
+function textFromString(value: string): Text {
+  return Text.of(value.split("\n"));
+}
+
 // Browser-style back/forward over a unified snapshot history of both docs.
 // Captures (textA, textB) on a short debounce after edits stop. Going back
 // or forward applies the snapshot at the new index without re-capturing.
@@ -225,11 +230,16 @@ const NAV_HISTORY_MAX = 50;
 function installEditNav(
   viewA: EditorView,
   viewB: EditorView,
+  applyDocs: (
+    a: Text,
+    b: Text,
+    options?: { syncSignalsFromDocs?: boolean },
+  ) => void,
 ): { goBack: () => void; goForward: () => void; dispose: () => void } {
-  let history: { a: string; b: string }[] = [
+  let history: { a: Text; b: Text }[] = [
     {
-      a: viewA.state.doc.toString(),
-      b: viewB.state.doc.toString(),
+      a: viewA.state.doc,
+      b: viewB.state.doc,
     },
   ];
   let index = 0;
@@ -244,10 +254,10 @@ function installEditNav(
 
   const captureNow = () => {
     if (suspended) return;
-    const a = viewA.state.doc.toString();
-    const b = viewB.state.doc.toString();
+    const a = viewA.state.doc;
+    const b = viewB.state.doc;
     const current = history[index];
-    if (current && current.a === a && current.b === b) return;
+    if (current && current.a.eq(a) && current.b.eq(b)) return;
     history = history.slice(0, index + 1);
     history.push({ a, b });
     if (history.length > NAV_HISTORY_MAX) {
@@ -266,18 +276,9 @@ function installEditNav(
     captureTimer = setTimeout(captureNow, NAV_DEBOUNCE_MS);
   });
 
-  const apply = (snap: { a: string; b: string }) => {
+  const apply = (snap: { a: Text; b: Text }) => {
     suspended = true;
-    if (viewA.state.doc.toString() !== snap.a) {
-      viewA.dispatch({
-        changes: { from: 0, to: viewA.state.doc.length, insert: snap.a },
-      });
-    }
-    if (viewB.state.doc.toString() !== snap.b) {
-      viewB.dispatch({
-        changes: { from: 0, to: viewB.state.doc.length, insert: snap.b },
-      });
-    }
+    applyDocs(snap.a, snap.b, { syncSignalsFromDocs: true });
     suspended = false;
   };
 
@@ -354,7 +355,7 @@ function baseExtensions(
   side: "a" | "b",
   mode: "light" | "dark",
   ref: PaneRef,
-  onDocChange: () => void,
+  onDocChange: (update: ViewUpdate) => void,
 ): Extension[] {
   const themeComp = side === "a" ? themeCompartmentA : themeCompartmentB;
   const langComp = side === "a" ? langCompartmentA : langCompartmentB;
@@ -382,13 +383,7 @@ function baseExtensions(
     gutterLineClassExt(side),
     EditorView.updateListener.of((u) => {
       if (!u.docChanged) return;
-      const text = u.state.doc.toString();
-      if (side === "a") {
-        if (originalText.peek() !== text) originalText.value = text;
-      } else {
-        if (modifiedText.peek() !== text) modifiedText.value = text;
-      }
-      onDocChange();
+      onDocChange(u);
     }),
   ];
 }
@@ -423,15 +418,30 @@ export function mountMergeView(host: HTMLElement): MergeController {
   let equalize:
     | { update: () => void; dispose: () => void }
     | null = null;
-  const recompute = () => {
-    const viewA = ref.views.a;
-    const viewB = ref.views.b;
-    if (!viewA || !viewB) return;
-    const docA = viewA.state.doc;
-    const docB = viewB.state.doc;
-    const chunks = Chunk.build(docA, docB);
-    viewA.dispatch({ effects: setChunks.of(chunks) });
-    viewB.dispatch({ effects: setChunks.of(chunks) });
+  let currentChunks: readonly Chunk[] = [];
+  let bulkDocUpdateDepth = 0;
+  let syncedOriginal = originalText.peek();
+  let syncedModified = modifiedText.peek();
+
+  const syncSignals = (a: string, b: string) => {
+    syncedOriginal = a;
+    syncedModified = b;
+    if (originalText.peek() !== a) originalText.value = a;
+    if (modifiedText.peek() !== b) modifiedText.value = b;
+  };
+
+  const syncDiffState = (
+    chunks: readonly Chunk[],
+    docA: Text,
+    docB: Text,
+  ) => {
+    const left = ref.views.a;
+    const right = ref.views.b;
+    if (!left || !right) return;
+
+    currentChunks = chunks;
+    left.dispatch({ effects: setChunks.of(chunks) });
+    right.dispatch({ effects: setChunks.of(chunks) });
 
     let added = 0;
     let removed = 0;
@@ -444,17 +454,55 @@ export function mountMergeView(host: HTMLElement): MergeController {
     equalize?.update();
   };
 
+  const recompute = () => {
+    const left = ref.views.a;
+    const right = ref.views.b;
+    if (!left || !right) return;
+    syncDiffState(
+      Chunk.build(left.state.doc, right.state.doc),
+      left.state.doc,
+      right.state.doc,
+    );
+  };
+
+  const handleDocChange = (side: "a" | "b") => (u: ViewUpdate) => {
+    const left = ref.views.a;
+    const right = ref.views.b;
+    if (!left || !right) return;
+    if (bulkDocUpdateDepth > 0) return;
+
+    const text = u.state.doc.toString();
+    if (side === "a") {
+      syncedOriginal = text;
+      if (originalText.peek() !== text) originalText.value = text;
+      syncDiffState(
+        Chunk.updateA(currentChunks, u.state.doc, right.state.doc, u.changes),
+        u.state.doc,
+        right.state.doc,
+      );
+      return;
+    }
+
+    syncedModified = text;
+    if (modifiedText.peek() !== text) modifiedText.value = text;
+    syncDiffState(
+      Chunk.updateB(currentChunks, left.state.doc, u.state.doc, u.changes),
+      left.state.doc,
+      u.state.doc,
+    );
+  };
+
   const viewA = new EditorView({
     state: EditorState.create({
       doc: originalText.peek(),
-      extensions: baseExtensions("a", mode, ref, recompute),
+      extensions: baseExtensions("a", mode, ref, handleDocChange("a")),
     }),
     parent: paneA,
   });
   const viewB = new EditorView({
     state: EditorState.create({
       doc: modifiedText.peek(),
-      extensions: baseExtensions("b", mode, ref, recompute),
+      extensions: baseExtensions("b", mode, ref, handleDocChange("b")),
     }),
     parent: paneB,
   });
@@ -462,7 +510,35 @@ export function mountMergeView(host: HTMLElement): MergeController {
   ref.views.b = viewB;
 
   equalize = equalizePaneHeights(viewA, viewB);
-  const editNav = installEditNav(viewA, viewB);
+  const applyDocs = (
+    nextA: Text,
+    nextB: Text,
+    options?: { syncSignalsFromDocs?: boolean },
+  ) => {
+    let changed = false;
+    bulkDocUpdateDepth++;
+    try {
+      if (!viewA.state.doc.eq(nextA)) {
+        viewA.dispatch({
+          changes: { from: 0, to: viewA.state.doc.length, insert: nextA },
+        });
+        changed = true;
+      }
+      if (!viewB.state.doc.eq(nextB)) {
+        viewB.dispatch({
+          changes: { from: 0, to: viewB.state.doc.length, insert: nextB },
+        });
+        changed = true;
+      }
+    } finally {
+      bulkDocUpdateDepth--;
+    }
+    if (changed) recompute();
+    if (options?.syncSignalsFromDocs) {
+      syncSignals(viewA.state.doc.toString(), viewB.state.doc.toString());
+    }
+  };
+  const editNav = installEditNav(viewA, viewB, applyDocs);
 
   // Initial diff after both views exist.
   recompute();
@@ -495,16 +571,10 @@ export function mountMergeView(host: HTMLElement): MergeController {
   document.addEventListener("keydown", onFnTab, true);
 
   const setDocs = (a: string, b: string) => {
-    if (viewA.state.doc.toString() !== a) {
-      viewA.dispatch({
-        changes: { from: 0, to: viewA.state.doc.length, insert: a },
-      });
-    }
-    if (viewB.state.doc.toString() !== b) {
-      viewB.dispatch({
-        changes: { from: 0, to: viewB.state.doc.length, insert: b },
-      });
-    }
+    if (a === syncedOriginal && b === syncedModified) return;
+    syncedOriginal = a;
+    syncedModified = b;
+    applyDocs(textFromString(a), textFromString(b));
   };
 
   const setTheme = (next: "light" | "dark") => {
