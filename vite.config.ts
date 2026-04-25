@@ -23,7 +23,7 @@ export default defineConfig({
   envPrefix: ["VITE_", "TAURI_ENV_*"],
   build: {
     target: "safari15",
-    minify: "esbuild",
+    minify: "oxc",
     sourcemap: false,
   },
 });
