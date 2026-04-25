@@ -32,7 +32,7 @@ import { mountPreferencesPanel } from "./preferencesPanel";
 const THEME_ICON: Record<ThemePreference, string> = {
   system: lucideSvg(Monitor, { size: 14 }),
   light: lucideSvg(Sun, { size: 14 }),
-  dark: lucideSvg(Moon, { size: 14, filled: true }),
+  dark: lucideSvg(Moon, { size: 14 }),
 };
 
 const NAV_BACK_ICON = lucideSvg(ArrowLeft, { size: 15, strokeWidth: 2 });
