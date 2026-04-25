@@ -6,10 +6,7 @@ import {
   swapSides,
 } from "../state";
 import { forceCapture } from "../history/pipeline";
-
-function isMetaOrCtrl(e: KeyboardEvent): boolean {
-  return e.metaKey || e.ctrlKey;
-}
+import { matchesShortcut } from "./shortcutSettings";
 
 export interface ShortcutHandlers {
   gotoChunk: (direction: "next" | "prev") => void;
@@ -19,75 +16,62 @@ export interface ShortcutHandlers {
 
 export function installShortcuts(handlers: ShortcutHandlers): () => void {
   const onKeyDown = (e: KeyboardEvent) => {
-    // ⌥↑ / ⌥↓ — jump to previous / next change.
-    if (e.altKey && !e.metaKey && !e.ctrlKey && !e.shiftKey) {
-      if (e.key === "ArrowUp") {
-        e.preventDefault();
-        handlers.gotoChunk("prev");
-        return;
-      }
-      if (e.key === "ArrowDown") {
-        e.preventDefault();
-        handlers.gotoChunk("next");
-        return;
-      }
-    }
-
-    if (!isMetaOrCtrl(e)) return;
-
-    const k = e.key.toLowerCase();
-
-    // ⌘Z / ⌘⇧Z (and ⌘Y) — unified back/forward across both panes.
-    if (k === "z" && !e.altKey) {
+    if (matchesShortcut(e, "gotoPrevChange")) {
       e.preventDefault();
-      if (e.shiftKey) handlers.goForward();
-      else handlers.goBack();
+      handlers.gotoChunk("prev");
       return;
     }
-    if (k === "y" && !e.shiftKey && !e.altKey) {
+    if (matchesShortcut(e, "gotoNextChange")) {
+      e.preventDefault();
+      handlers.gotoChunk("next");
+      return;
+    }
+
+    if (matchesShortcut(e, "historyBack")) {
+      e.preventDefault();
+      handlers.goBack();
+      return;
+    }
+    if (matchesShortcut(e, "historyForward")) {
       e.preventDefault();
       handlers.goForward();
       return;
     }
 
-    // ⌘F — open search and always focus the Find field (CM's default would
-    // leave Replace focused if it was the last field used).
-    if (k === "f" && !e.shiftKey && !e.altKey) {
+    // Open search and always focus the Find field (CM's default would leave
+    // Replace focused if it was the last field used).
+    if (matchesShortcut(e, "find")) {
       e.preventDefault();
       openFind();
       return;
     }
 
-    // ⌘H — find & replace (toggles focus between search and replace inputs)
-    if (k === "h" && !e.shiftKey && !e.altKey) {
+    // Find & replace (toggles focus between search and replace inputs)
+    if (matchesShortcut(e, "replace")) {
       e.preventDefault();
       openFindReplace();
       return;
     }
 
-    // ⌘B — toggle history
-    if (k === "b" && !e.shiftKey && !e.altKey) {
+    if (matchesShortcut(e, "toggleHistory")) {
       e.preventDefault();
       historyOpen.value = !historyOpen.peek();
       return;
     }
 
-    // ⌘⇧S — swap
-    if (e.shiftKey && e.key.toLowerCase() === "s") {
+    if (matchesShortcut(e, "swapSides")) {
       e.preventDefault();
       swapSides();
       return;
     }
 
-    // ⌘⇧N — force new history entry
-    if (e.shiftKey && e.key.toLowerCase() === "n") {
+    if (matchesShortcut(e, "forceCapture")) {
       e.preventDefault();
       void forceCapture();
       return;
     }
 
-    // ⌘⇧Backspace — clear both
-    if (e.shiftKey && (e.key === "Backspace" || e.key === "Delete")) {
+    if (matchesShortcut(e, "clearBoth")) {
       e.preventDefault();
       resetBothDocs();
       return;

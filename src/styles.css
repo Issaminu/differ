@@ -193,12 +193,20 @@ body {
 .diff-nav:active { transform: translateY(0.5px); }
 
 .tb-theme,
-.tb-lang {
+.tb-lang,
+.tb-prefs,
+.tb-prefs-host {
   position: relative;
   -webkit-app-region: no-drag;
 }
 .tb-theme-trigger { padding: 6px 8px; }
 .tb-lang-trigger { padding: 6px 8px; font-variant-numeric: tabular-nums; }
+.tb-icon-btn {
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  justify-content: center;
+}
 
 .tb-menu {
   position: absolute;
@@ -304,6 +312,264 @@ body {
   content: "✓";
   color: var(--fg-muted);
   font-weight: 600;
+}
+
+.tb-prefs-modal {
+  position: fixed;
+  inset: 0;
+  z-index: 80;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: max(16px, env(safe-area-inset-top)) max(20px, env(safe-area-inset-right))
+    max(20px, env(safe-area-inset-bottom)) max(20px, env(safe-area-inset-left));
+  box-sizing: border-box;
+}
+.tb-prefs-modal[hidden] {
+  display: none;
+}
+
+.tb-prefs-backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.42);
+  cursor: default;
+}
+
+:root[data-theme="dark"] .tb-prefs-backdrop {
+  background: rgba(0, 0, 0, 0.58);
+}
+
+.tb-prefs-panel {
+  position: relative;
+  z-index: 1;
+  width: min(430px, 100%);
+  max-height: min(460px, calc(100vh - 32px));
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+  background: var(--bg-opaque);
+  border: 1px solid var(--border-strong);
+  border-radius: 12px;
+  box-shadow: 0 24px 48px rgba(0, 0, 0, 0.28);
+}
+
+.pref-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 14px 14px 10px;
+  border-bottom: 1px solid var(--border);
+}
+
+.pref-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--fg);
+  min-width: 0;
+}
+
+.pref-close {
+  flex-shrink: 0;
+  padding: 4px 8px;
+  border: none;
+  background: transparent;
+  color: var(--fg-subtle);
+}
+.pref-close:hover {
+  background: var(--border);
+  color: var(--fg);
+}
+.pref-close:active {
+  transform: translateY(0.5px);
+}
+
+.pref-tabs {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 10px 14px 0;
+}
+
+.pref-tab {
+  appearance: none;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--fg-subtle);
+  font: 500 12px var(--font-ui);
+  border-radius: 8px;
+  padding: 6px 10px;
+  cursor: pointer;
+}
+.pref-tab:hover {
+  background: var(--bg-elevated);
+  color: var(--fg);
+}
+.pref-tab.active {
+  background: var(--bg-elevated);
+  border-color: var(--border);
+  color: var(--fg);
+}
+
+.pref-body {
+  padding: 12px 14px 14px;
+}
+
+.pref-view {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.pref-view[hidden] { display: none; }
+
+.pref-shortcut-group {
+  display: flex;
+  flex-direction: column;
+}
+
+.pref-shortcut-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 12px;
+  padding: 12px 0;
+  border-bottom: 1px solid var(--border);
+}
+.pref-shortcut-group .pref-shortcut-row:last-child {
+  border-bottom: 0;
+}
+
+.pref-copy {
+  min-width: 0;
+}
+
+.pref-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--fg);
+}
+
+.pref-help {
+  margin-top: 4px;
+  font-size: 11px;
+  line-height: 1.45;
+  color: var(--fg-subtle);
+}
+
+.pref-inline-code {
+  font: 600 10.5px var(--font-mono);
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  padding: 1px 4px;
+}
+
+.pref-shortcuts-toolbar {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--border);
+}
+
+.pref-shortcuts-copy {
+  min-width: 0;
+}
+
+.pref-shortcuts-list {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  max-height: 310px;
+  overflow-y: auto;
+  padding-right: 2px;
+}
+
+.pref-section-title {
+  padding: 14px 0 8px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--fg-muted);
+}
+
+.pref-shortcut-controls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.pref-shortcut-input {
+  width: 150px;
+  appearance: none;
+  border: 1px solid var(--border);
+  background: var(--bg-elevated);
+  color: var(--fg);
+  font: 500 11.5px var(--font-mono);
+  padding: 7px 9px;
+  border-radius: 8px;
+  outline: none;
+}
+.pref-shortcut-input:focus {
+  border-color: var(--accent);
+}
+
+.pref-shortcut-reset {
+  padding: 7px 9px;
+}
+
+.pref-shortcut-row {
+  align-items: start;
+}
+
+.pref-shortcut-row.invalid .pref-shortcut-input {
+  border-color: rgba(248, 81, 73, 0.8);
+}
+
+.pref-shortcut-error {
+  grid-column: 1 / -1;
+  margin-top: -6px;
+  font-size: 10.5px;
+  color: rgb(225, 90, 90);
+}
+
+.pref-about {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.pref-about-name {
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--fg);
+}
+
+.pref-about-version {
+  font-size: 11px;
+  color: var(--fg-muted);
+}
+
+.pref-about-copy {
+  margin: 0;
+  max-width: 52ch;
+  font-size: 12px;
+  line-height: 1.55;
+  color: var(--fg-muted);
+}
+
+.pref-about-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+  padding-top: 6px;
+}
+
+.pref-about-item {
+  min-width: 0;
 }
 
 

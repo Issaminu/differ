@@ -15,6 +15,7 @@ import {
 } from "../state";
 import { availableLanguages } from "../merge/languages";
 import { languageIcon } from "../merge/languageIcons";
+import { mountPreferencesPanel } from "./preferencesPanel";
 
 const THEME_ICON: Record<ThemePreference, string> = {
   system: `<svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="12" height="9" rx="1.5"/><path d="M6 14h4M8 12v2"/></svg>`,
@@ -75,6 +76,7 @@ export function mountToolbar(host: HTMLElement, handlers: ToolbarHandlers): void
         <circle cx="8" cy="8" r="6"/><path d="M8 4v4l2.5 2.5"/>
       </svg>
     </button>
+    <div class="tb-prefs-host"></div>
   `;
 
   const historyBtn = host.querySelector<HTMLButtonElement>('[data-action="history"]')!;
@@ -85,9 +87,11 @@ export function mountToolbar(host: HTMLElement, handlers: ToolbarHandlers): void
   const langList = host.querySelector<HTMLDivElement>(".tb-lang-list")!;
   const themeBtn = host.querySelector<HTMLButtonElement>('[data-action="theme"]')!;
   const themeMenu = host.querySelector<HTMLDivElement>(".tb-theme-menu")!;
+  const prefsHost = host.querySelector<HTMLDivElement>(".tb-prefs-host")!;
   const themeItems = Array.from(
     themeMenu.querySelectorAll<HTMLButtonElement>("[data-pref]"),
   );
+  const prefs = mountPreferencesPanel(prefsHost);
 
   // Populate language menu: Auto + all available languages
   const langEntries: { id: string; label: string; extensions: readonly string[] }[] = [
@@ -199,13 +203,17 @@ export function mountToolbar(host: HTMLElement, handlers: ToolbarHandlers): void
   const setThemeMenuOpen = (open: boolean) => {
     themeMenu.hidden = !open;
     themeBtn.setAttribute("aria-expanded", String(open));
-    if (open) setLangMenuOpen(false);
+    if (open) {
+      setLangMenuOpen(false);
+      prefs.setOpen(false);
+    }
   };
   const setLangMenuOpen = (open: boolean) => {
     langMenu.hidden = !open;
     langBtn.setAttribute("aria-expanded", String(open));
     if (open) {
       setThemeMenuOpen(false);
+      prefs.setOpen(false);
       langSearch.value = "";
       applyLangFilter("");
       // Next frame so the hidden→visible transition completes before focus.
@@ -256,12 +264,14 @@ export function mountToolbar(host: HTMLElement, handlers: ToolbarHandlers): void
     if (host.contains(e.target as Node)) return;
     if (!themeMenu.hidden) setThemeMenuOpen(false);
     if (!langMenu.hidden) setLangMenuOpen(false);
+    if (prefs.isOpen()) prefs.setOpen(false);
   });
 
   document.addEventListener("keydown", (e) => {
     if (e.key !== "Escape") return;
     if (!themeMenu.hidden) setThemeMenuOpen(false);
     if (!langMenu.hidden) setLangMenuOpen(false);
+    if (prefs.isOpen()) prefs.setOpen(false);
   });
 
   // Icon + checked-state sync
