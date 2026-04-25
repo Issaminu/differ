@@ -94,6 +94,13 @@ body {
   -webkit-app-region: drag;
 }
 
+/* Preferences modal + backdrop must sit above CodeMirror panels (.cm-panels
+   use z-index 300 in @codemirror/view) so the dimmer covers find/replace and
+   blocks pointer events to it. */
+:root[data-prefs-open] #chrome {
+  z-index: 1000;
+}
+
 #toolbar {
   flex: 1;
   display: flex;

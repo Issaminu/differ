@@ -49,7 +49,7 @@ export function mountPreferencesPanel(host: HTMLElement): PreferencesPanelContro
               <div class="pref-shortcuts-copy">
                 <div class="pref-label">Keyboard shortcuts</div>
               </div>
-              <button class="tb-btn ghost tb-icon-btn" type="button" data-action="reset-shortcuts" title="Reset all shortcuts to defaults" aria-label="Reset all shortcuts to defaults">${SHORTCUT_RESET_ICON}</button>
+              <button class="tb-btn ghost pref-reset-all-shortcuts" type="button" data-action="reset-shortcuts" title="Reset all shortcuts to defaults" aria-label="Reset all shortcuts to defaults">${SHORTCUT_RESET_ICON}<span>Reset All</span></button>
             </div>
             <div class="pref-shortcuts-list"></div>
           </section>
@@ -128,6 +128,7 @@ export function mountPreferencesPanel(host: HTMLElement): PreferencesPanelContro
     modal.setAttribute("aria-hidden", String(!open));
     trigger.setAttribute("aria-expanded", String(open));
     trigger.classList.toggle("primary", open);
+    document.documentElement.toggleAttribute("data-prefs-open", open);
     if (open) {
       requestAnimationFrame(() => tabButtons[0]?.focus());
     } else if (wasOpen) {
