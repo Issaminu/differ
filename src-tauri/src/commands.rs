@@ -7,6 +7,15 @@ fn map_err<E: std::fmt::Debug>(e: E) -> String {
     format!("{e:?}")
 }
 
+/// Open an http(s) URL in the system default browser (About links, etc.).
+#[tauri::command]
+pub fn open_external_url(url: String) -> Result<(), String> {
+    if !(url.starts_with("https://") || url.starts_with("http://")) {
+        return Err("only http(s) URLs are allowed".to_string());
+    }
+    open::that(&url).map_err(|e| e.to_string())
+}
+
 #[tauri::command]
 pub async fn history_load(state: State<'_, AppState>) -> Result<HistoryFile, String> {
     let store = state.history.lock().await;

@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="public/app-icon.png" width="128" height="128" alt="Differ app icon" />
+</p>
+
 # differ
 
 Type in either side, see instant green/red diffs with syntax highlighting and auto language detection. Native macOS shell via [Tauri 2](https://v2.tauri.app/), diff UI via [`@codemirror/merge`](https://codemirror.net/docs/ref/#merge).
@@ -60,13 +64,17 @@ Produces `src-tauri/target/release/bundle/macos/differ.app` and a `.dmg`.
 
 ## Icons (for release bundles)
 
-The `icons/` folder is empty at the moment. Before `bun tauri build`, generate them from a source PNG:
+Bundled platform icons live in [`src-tauri/icons/`](src-tauri/icons/). Regenerate from the 1024×1024 master after editing it:
 
 ```sh
-bun tauri icon path/to/source-1024.png
+bun tauri icon src-tauri/icons/app-icon-source-1024.png
 ```
 
-`bun tauri dev` works without icons.
+The in-app About screen and [`public/app-icon.png`](public/app-icon.png) (README hero) use a 256×256 export; after regenerating icons, refresh that file if the artwork changed:
+
+```sh
+cp src-tauri/icons/128x128@2x.png public/app-icon.png
+```
 
 ## Sandbox / network
 

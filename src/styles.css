@@ -363,6 +363,8 @@ body {
   padding: max(16px, env(safe-area-inset-top)) max(20px, env(safe-area-inset-right))
     max(20px, env(safe-area-inset-bottom)) max(20px, env(safe-area-inset-left));
   box-sizing: border-box;
+  /* Full-viewport overlay must opt out of chrome drag region or clicks never fire. */
+  -webkit-app-region: no-drag;
 }
 .tb-prefs-modal[hidden] {
   display: none;
@@ -373,6 +375,7 @@ body {
   inset: 0;
   background: rgba(0, 0, 0, 0.42);
   cursor: default;
+  -webkit-app-region: no-drag;
 }
 
 :root[data-theme="dark"] .tb-prefs-backdrop {
@@ -392,6 +395,7 @@ body {
   border: 1px solid var(--border-strong);
   border-radius: 12px;
   box-shadow: 0 24px 48px rgba(0, 0, 0, 0.28);
+  -webkit-app-region: no-drag;
 }
 
 .pref-header {
@@ -676,11 +680,14 @@ body {
 
 .pref-about-app-icon {
   flex-shrink: 0;
+  display: block;
   width: 52px;
   height: 52px;
   border-radius: 12px;
-  border: 1px dashed color-mix(in srgb, var(--border-strong) 70%, var(--fg) 8%);
-  background: color-mix(in srgb, var(--bg-elevated) 88%, transparent);
+  border: 1px solid color-mix(in srgb, var(--border-strong) 55%, var(--fg) 6%);
+  object-fit: cover;
+  background: var(--bg-elevated);
+  box-shadow: 0 1px 2px color-mix(in srgb, var(--fg) 6%, transparent);
 }
 
 .pref-about-copy {
@@ -710,7 +717,9 @@ body {
   font-size: 12px;
   font-weight: 500;
   text-decoration: none;
+  cursor: pointer;
   transition: background 0.12s ease, border-color 0.12s ease, color 0.12s ease;
+  -webkit-app-region: no-drag;
 }
 .pref-about-link:hover {
   background: var(--bg-opaque);

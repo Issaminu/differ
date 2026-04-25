@@ -1,5 +1,5 @@
 import { effect } from "@preact/signals-core";
-import { openUrl } from "@tauri-apps/plugin-opener";
+import { invoke } from "@tauri-apps/api/core";
 
 import pkg from "../../package.json";
 import { Keyboard, RotateCcw, Settings, X } from "lucide";
@@ -71,7 +71,7 @@ export function mountPreferencesPanel(host: HTMLElement): PreferencesPanelContro
                   <div class="pref-about-name">Differ</div>
                   <div class="pref-about-version">Version ${pkg.version}</div>
                 </div>
-                <div class="pref-about-app-icon" role="img" aria-label="App icon (placeholder)"></div>
+                <img class="pref-about-app-icon" src="/app-icon.png" width="52" height="52" alt="Differ" decoding="async" />
               </div>
               <p class="pref-about-copy">A native two-pane diff shell built for fast editing, shared history navigation, and lightweight snapshot recall.</p>
               <div class="pref-about-links">
@@ -104,14 +104,19 @@ export function mountPreferencesPanel(host: HTMLElement): PreferencesPanelContro
   const shortcutsList = host.querySelector<HTMLDivElement>(".pref-shortcuts-list")!;
 
   for (const link of host.querySelectorAll<HTMLAnchorElement>(".pref-about-link")) {
-    link.addEventListener("click", (event) => {
-      const url = link.getAttribute("href");
-      if (!url) return;
-      event.preventDefault();
-      void openUrl(url).catch(() => {
-        window.open(url, "_blank", "noopener,noreferrer");
-      });
-    });
+    link.addEventListener(
+      "click",
+      (event) => {
+        const url = link.getAttribute("href");
+        if (!url) return;
+        event.preventDefault();
+        event.stopPropagation();
+        void invoke("open_external_url", { url }).catch(() => {
+          window.open(url, "_blank", "noopener,noreferrer");
+        });
+      },
+      true,
+    );
   }
 
   let activeTab: PreferencesTab = "shortcuts";
