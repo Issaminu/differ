@@ -352,7 +352,7 @@ export function mountPreferencesPanel(host: HTMLElement): PreferencesPanelContro
 
   trigger.addEventListener("click", (event) => {
     event.stopPropagation();
-    setOpen(modal.hidden);
+    setOpen(!!modal.hidden);
   });
 
   closeBtn.addEventListener("click", () => setOpen(false));
