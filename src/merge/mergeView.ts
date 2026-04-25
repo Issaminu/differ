@@ -85,9 +85,12 @@ function baseExtensions(
   ];
 }
 
-// Pad the shorter pane's .cm-content with bottom padding so both panes have
-// the same scrollable height while scroll is locked. In unlocked mode the
-// padding is removed so each pane stops naturally at its last line.
+// Pad the shorter pane's .cm-content while locked so both panes have equal
+// scrollable height. Only runs on lock toggle — no ResizeObserver, so doc
+// edits don't re-measure or touch the scroller's layout state.
+// Trade-off: edits in locked mode that change line count won't keep the
+// equalization perfectly accurate; toggling the lock (or a future explicit
+// recompute) is when it gets recalculated.
 function equalizePaneHeights(
   aScroll: HTMLElement,
   bScroll: HTMLElement,
@@ -116,20 +119,12 @@ function equalizePaneHeights(
     }
   };
 
-  const ro = new ResizeObserver(equalize);
-  ro.observe(contentA);
-  ro.observe(contentB);
   equalize();
 
-  const disposeLockEffect = effect(() => {
+  return effect(() => {
     scrollLocked.value;
     equalize();
   });
-
-  return () => {
-    ro.disconnect();
-    disposeLockEffect();
-  };
 }
 
 // Mirror vertical scroll between the two panes so diff lines stay aligned.
@@ -167,11 +162,23 @@ function syncScroll(a: HTMLElement, b: HTMLElement): () => void {
   };
 }
 
+// Compute the y-coordinate of the bottom of the actual last line in a pane,
+// excluding any merge-view alignment spacers below it. Used to clamp scroll
+// position in unlocked mode so the user can't scroll past their own content
+// into spacer-only territory.
+function naturalContentBottom(scroller: HTMLElement): number {
+  const lines = scroller.querySelectorAll<HTMLElement>(".cm-line");
+  if (lines.length === 0) return scroller.scrollHeight;
+  const last = lines[lines.length - 1];
+  return last.offsetTop + last.offsetHeight;
+}
+
 // macOS trackpad scrolling can put WebKit's async scroll tree into an elastic
-// rubber-band state before edge-only wheel guards get a chance to help. For
-// the editor panes, drive wheel scrolling ourselves and clamp the result. The
-// native scrollbars are still real because scrollTop/scrollLeft remain on the
-// CodeMirror scrollers; only the wheel default is bypassed.
+// rubber-band state before AppKit's elasticity disable always sticks. Drive
+// wheel scrolling ourselves and clamp the result. Native scrollbars still
+// reflect the same scrollTop/scrollLeft. In unlocked mode, also clamp to the
+// last actual content line so the user can't scroll into the alignment-
+// spacer area beyond their own doc's last line.
 function installPaneWheelScrolling(...scrollers: HTMLElement[]): () => void {
   const WHEEL_OPTIONS: AddEventListenerOptions = {
     capture: true,
@@ -200,7 +207,13 @@ function installPaneWheelScrolling(...scrollers: HTMLElement[]): () => void {
 
       const deltaX = event.deltaX * wheelScale(el, event, "x");
       const deltaY = event.deltaY * wheelScale(el, event, "y");
-      const maxTop = Math.max(0, el.scrollHeight - el.clientHeight);
+      const baseMax = Math.max(0, el.scrollHeight - el.clientHeight);
+      const maxTop = scrollLocked.peek()
+        ? baseMax
+        : Math.min(
+            baseMax,
+            Math.max(0, naturalContentBottom(el) - el.clientHeight),
+          );
       const maxLeft = Math.max(0, el.scrollWidth - el.clientWidth);
       const nextTop = Math.min(Math.max(el.scrollTop + deltaY, 0), maxTop);
       const nextLeft = Math.min(Math.max(el.scrollLeft + deltaX, 0), maxLeft);
@@ -210,8 +223,22 @@ function installPaneWheelScrolling(...scrollers: HTMLElement[]): () => void {
       event.preventDefault();
     };
 
+    // Scrollbar drag bypasses our wheel handler — clamp via scroll event so
+    // dragging the thumb past the natural content also gets pulled back.
+    const onScroll = () => {
+      if (scrollLocked.peek()) return;
+      const max = Math.max(0, naturalContentBottom(el) - el.clientHeight);
+      if (el.scrollTop > max + 1) {
+        el.scrollTop = max;
+      }
+    };
+
     el.addEventListener("wheel", onWheel, WHEEL_OPTIONS);
-    return () => el.removeEventListener("wheel", onWheel, WHEEL_OPTIONS);
+    el.addEventListener("scroll", onScroll, { passive: true });
+    return () => {
+      el.removeEventListener("wheel", onWheel, WHEEL_OPTIONS);
+      el.removeEventListener("scroll", onScroll);
+    };
   });
 
   return () => cleanups.forEach((cleanup) => cleanup());

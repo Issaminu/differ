@@ -372,11 +372,6 @@ body {
 
 .cm-mergeView .cm-changeGutter .cm-changedLineGutter { background: transparent; }
 
-/* Disable the library's line-alignment fillers so both sides start at their
-   line 1 at the top (instead of the shorter side getting pushed down to
-   align with the longer). Trade-off: diff lines no longer line up
-   horizontally across panes, but scroll-lock still keeps them in sync. */
-.cm-mergeSpacer { display: none !important; }
 
 /* VSCode-style search widget.
    Panels are flex children at the top of .cm-editor. We align to the right
