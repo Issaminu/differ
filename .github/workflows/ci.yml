@@ -1,8 +1,11 @@
 name: CI
 
-# Verification-only CI: typecheck + build the web bundle on every push and PR.
-# Production web deploys happen exclusively on release creation (release.yml),
-# so this workflow never touches Cloudflare.
+# Verification-only CI on every push and PR:
+#   - web typecheck + build
+#   - bun unit tests (history dedupe parity, etc.)
+#   - diff correctness validator (imara apply invariant)
+#   - cargo tests (Rust history dedupe + parity vs shared fixtures)
+# Production web deploys happen exclusively on release creation (release.yml).
 on:
   push:
     branches: [main]
@@ -14,7 +17,7 @@ concurrency:
 
 jobs:
   web:
-    name: Web typecheck & build
+    name: Web typecheck, build & tests
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -30,3 +33,99 @@ jobs:
 
       - name: Type-check & build (web)
         run: bun run build:web
+
+      - name: Unit tests
+        run: bun test
+
+      - name: Diff correctness (imara apply invariant)
+        run: bun run bench:validate
+
+  rust:
+    name: Rust tests (history dedupe + parity)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v6
+
+      # Tauri's transitive deps need these system libs to compile on Linux,
+      # even for a `cargo test` that never touches the GUI layer.
+      - name: Install Linux dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            libssl-dev \
+            libgtk-3-dev \
+            libayatana-appindicator3-dev \
+            librsvg2-dev \
+            libsoup-3.0-dev
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      - name: cargo test
+        run: cargo test --manifest-path src-tauri/Cargo.toml
+
+  # Verify the Tauri build actually produces bundles on every platform we
+  # ship from release.yml. Catches platform-only breakage (system-lib drift,
+  # Windows path quirks, Cargo deps that don't compile on a target) before
+  # it bites a release tag. Build-only — no signing, no upload.
+  tauri-build:
+    name: Tauri build (${{ matrix.label }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - label: macOS
+            os: macos-latest
+            bundles: app dmg
+          - label: Windows
+            os: windows-latest
+            bundles: nsis
+          - label: Linux
+            os: ubuntu-22.04
+            bundles: appimage
+    runs-on: ${{ matrix.os }}
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Install Linux dependencies
+        if: matrix.os == 'ubuntu-22.04'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            libssl-dev \
+            libgtk-3-dev \
+            libayatana-appindicator3-dev \
+            librsvg2-dev \
+            libsoup-3.0-dev \
+            patchelf
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Install JS dependencies
+        run: bun install --frozen-lockfile
+
+      # tauri-action with no `releaseId` builds but does not upload.
+      # Overriding createUpdaterArtifacts avoids needing the signing-key
+      # secret on PR runs (forked PRs can't access it anyway).
+      - uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          args: --bundles ${{ matrix.bundles }} --config '{"bundle":{"createUpdaterArtifacts":false}}'

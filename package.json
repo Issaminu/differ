@@ -8,6 +8,7 @@
     "build": "tsc --noEmit && vite build",
     "build:web": "VITE_TARGET=web tsc --noEmit && VITE_TARGET=web vite build",
     "preview": "vite preview",
+    "test": "bun test",
     "tauri": "tauri",
     "icons": "tauri icon src-tauri/icons/app-icon-1024.png && cp src-tauri/icons/128x128@2x.png public/app-icon.png",
     "bench": "node bench/diff.bench.ts",
@@ -41,6 +42,7 @@
   "devDependencies": {
     "@codemirror/merge": "^6.12.1",
     "@tauri-apps/cli": "^2.10.1",
+    "@types/bun": "^1.3.13",
     "@types/node": "^25.6.0",
     "playwright": "^1.59.1",
     "tinybench": "^6.0.0",

@@ -166,4 +166,74 @@ mod tests {
         let d = decide(Some(&last), "hello", &big, Utc::now());
         assert!(matches!(d, Decision::Append));
     }
+
+    // Parity with src/history/api.web.ts. Same JSON drives bun:test in
+    // src/history/dedupe.test.ts — any drift between the two impls fails
+    // one of the two suites in CI.
+    #[derive(serde::Deserialize)]
+    struct LastSpec {
+        original: String,
+        modified: String,
+        ago_min: i64,
+    }
+
+    #[derive(serde::Deserialize)]
+    struct NextSpec {
+        original: String,
+        modified: String,
+    }
+
+    #[derive(serde::Deserialize)]
+    struct Fixture {
+        name: String,
+        last: Option<LastSpec>,
+        next: NextSpec,
+        expected: String,
+    }
+
+    #[derive(serde::Deserialize)]
+    struct Fixtures {
+        fixtures: Vec<Fixture>,
+    }
+
+    #[test]
+    fn parity_fixtures() {
+        let raw = include_str!("../../tests/dedupe-fixtures.json");
+        let parsed: Fixtures = serde_json::from_str(raw).expect("fixture JSON");
+        let now = chrono::DateTime::parse_from_rfc3339("2026-04-26T12:00:00Z")
+            .unwrap()
+            .with_timezone(&Utc);
+
+        let mut failures: Vec<String> = Vec::new();
+        for fx in parsed.fixtures {
+            let last = fx.last.map(|l| {
+                let updated = now - Duration::minutes(l.ago_min);
+                HistoryEntry {
+                    id: "test".into(),
+                    created_at: updated,
+                    updated_at: updated,
+                    original: l.original,
+                    modified: l.modified,
+                    preview: String::new(),
+                    language: "plaintext".into(),
+                }
+            });
+            let got = decide(last.as_ref(), &fx.next.original, &fx.next.modified, now);
+            let got_str = match got {
+                Decision::Append => "append",
+                Decision::UpdateLast => "updateLast",
+            };
+            if got_str != fx.expected {
+                failures.push(format!(
+                    "{}: expected {}, got {}",
+                    fx.name, fx.expected, got_str
+                ));
+            }
+        }
+        assert!(
+            failures.is_empty(),
+            "dedupe parity failures:\n{}",
+            failures.join("\n")
+        );
+    }
 }

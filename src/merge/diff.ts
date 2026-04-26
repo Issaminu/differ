@@ -7,13 +7,6 @@
 // Combined with set_a/set_b reference-equality skipping, a per-keystroke
 // recompute on a 70 MB doc avoids two of the three big GC contributors that
 // the trace analysis surfaced.
-//
-// Note: we tried moving this into a Web Worker (commit b96241c, since
-// reverted). Paste improved 15–18% but big-doc scroll regressed 45–80%
-// because the worker's allocation activity competed with main-thread
-// rendering. Bench numbers said it wasn't worth it; the keystroke
-// "responsiveness" theoretical win didn't show up because total work
-// time is unchanged. Sync stays.
 
 import {
   DiffSession,

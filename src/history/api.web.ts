@@ -11,9 +11,13 @@ const DB_NAME = "differ";
 const STORE = "history";
 const KEY = "file";
 
+// These constants must stay in lockstep with src-tauri/src/dedupe.rs.
+// tests/dedupe-fixtures.json is consumed by both impls — drift is caught there.
 const MERGE_CUTOFF_MS = 10 * 60 * 1000;
 const LENGTH_DELTA_APPEND = 512;
 const EDGE_WINDOW = 256;
+const LEV_WINDOW = 1024;
+const LEV_SIMILARITY_THRESHOLD = 0.85;
 
 function emptyFile(): HistoryFile {
   return { version: SCHEMA_VERSION, entries: [] };
@@ -70,9 +74,9 @@ function makePreview(original: string, modified: string): string {
   return chars.slice(0, 80).join("") + "…";
 }
 
-type Decision = "append" | "updateLast";
+export type Decision = "append" | "updateLast";
 
-function decide(
+export function decide(
   last: HistoryEntry | undefined,
   original: string,
   modified: string,
@@ -98,6 +102,12 @@ function decide(
     return "append";
   }
 
+  const ratioO = similaritySuffix(last.original, original, LEV_WINDOW);
+  const ratioM = similaritySuffix(last.modified, modified, LEV_WINDOW);
+  if ((ratioO + ratioM) / 2 < LEV_SIMILARITY_THRESHOLD) {
+    return "append";
+  }
+
   return "updateLast";
 }
 
@@ -107,6 +117,35 @@ function edgesMatch(a: string, b: string, window: number): boolean {
     a.slice(0, window) === b.slice(0, window) ||
     a.slice(-window) === b.slice(-window)
   );
+}
+
+function similaritySuffix(a: string, b: string, window: number): number {
+  const sa = a.length > window ? a.slice(-window) : a;
+  const sb = b.length > window ? b.slice(-window) : b;
+  const max = Math.max(sa.length, sb.length);
+  if (max === 0) return 1;
+  return 1 - levenshtein(sa, sb) / max;
+}
+
+// Classic two-row DP. Mirrors src-tauri/src/dedupe.rs#levenshtein so the
+// dedupe decision is identical on both adapters for any ASCII input.
+function levenshtein(a: string, b: string): number {
+  const n = a.length;
+  const m = b.length;
+  if (n === 0) return m;
+  if (m === 0) return n;
+  let prev = new Array<number>(m + 1);
+  let curr = new Array<number>(m + 1);
+  for (let j = 0; j <= m; j++) prev[j] = j;
+  for (let i = 1; i <= n; i++) {
+    curr[0] = i;
+    for (let j = 1; j <= m; j++) {
+      const cost = a.charCodeAt(i - 1) === b.charCodeAt(j - 1) ? 0 : 1;
+      curr[j] = Math.min(prev[j] + 1, curr[j - 1] + 1, prev[j - 1] + cost);
+    }
+    [prev, curr] = [curr, prev];
+  }
+  return prev[m];
 }
 
 function newId(): string {
