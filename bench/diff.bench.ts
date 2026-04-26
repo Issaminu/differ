@@ -1,7 +1,6 @@
 // Benchmarks for the diff editor's CPU hot paths.
 //
-//   - `Chunk.build`       : the diff algorithm itself (full recompute).
-//   - `Chunk.updateB`     : incremental update on a typed-on-the-right edit.
+//   - `DiffSession`       : production imara-diff WASM full recompute.
 //   - buildDecorations    : translate chunks → CodeMirror DecorationSet.
 //   - buildGutterRangeSet : translate chunks → gutter line marker RangeSet.
 //   - detectLanguage      : the keyword-scoring heuristic.
@@ -17,14 +16,22 @@
 import { writeSync } from "node:fs";
 import { Bench, type BenchOptions } from "tinybench";
 import { Chunk } from "@codemirror/merge";
-import { ChangeSet } from "@codemirror/state";
 
 import {
   buildDecorations,
   buildGutterRangeSet,
+  countChangedLines,
 } from "../src/merge/diffDecorations.ts";
 import { detectLanguage } from "../src/merge/languageDetect.ts";
 import { FIXTURES, buildFixture, type Fixture } from "./fixtures.ts";
+import {
+  chunkSetFromSession,
+  computeChunkSet,
+  insertOneCharAtMiddle,
+  viewportAround,
+  type BenchDiffChunkSet,
+  type DiffSessionLike,
+} from "./packedDiff.ts";
 
 // Node's process.stderr.write is async when piped to a non-TTY, so writes
 // from inside a tight synchronous loop never flush until the loop ends.
@@ -180,11 +187,15 @@ const fixtures: Fixture[] = FIXTURES.map((spec) => {
 });
 const fixturesByName = new Map(fixtures.map((f) => [f.spec.name, f] as const));
 
-// Section 1: full diff (Chunk.build). Skip the marked-pathological cases —
-// see fixtures.ts for the why. Uses tighter iteration caps because some of
-// these scenarios exceed 100ms/iter.
+const imaraMod = await import(
+  "../crates/diff-wasm/pkg-node/differ_diff_wasm.js"
+).catch(() => null);
+
+// Section 1: legacy full diff (@codemirror/merge). This is no longer the
+// production diff path, but keeping it visible makes regressions and the old
+// baseline easy to compare against imara.
 await runSection(
-  "Chunk.build (full diff)",
+  "legacy Chunk.build (full diff)",
   fixtures
     .filter((f) => !f.spec.skipFullDiff)
     .map((f) => ({
@@ -196,17 +207,14 @@ await runSection(
   FULL_DIFF_TIERS,
 );
 
-// Section 1b: same scenarios via the imara-diff WASM wrapper (line-level).
-// Loaded lazily so the rest of the suite still runs if the .wasm hasn't been
-// built yet. Includes the disjoint cases that we *had* to skip for CM-merge —
-// imara should handle them in human time.
-const imaraMod = await import(
-  "../crates/diff-wasm/pkg-node/differ_diff_wasm.js"
-).catch(() => null);
+// Section 2: imara object-returning wrappers. These are not the production
+// editor path anymore, but they quantify the allocation cost we avoid with
+// DiffSession's packed Int32Array output.
 if (imaraMod) {
   const imara = imaraMod as {
     diff: (a: string, b: string) => unknown[];
     diff_with_changes: (a: string, b: string) => unknown[];
+    DiffSession: new () => DiffSessionLike & { free?: () => void };
   };
   // Use the same tight tier as CM-merge's full diff so the suite stays
   // bounded if imara doesn't beat Myers as cleanly as advertised on a given
@@ -235,100 +243,161 @@ if (imaraMod) {
     })),
     FULL_DIFF_TIERS,
   );
+
+  await runSection(
+    "DiffSession set+compute+buffers (paste/full)",
+    fixtures.map((f) => {
+      const session = new imara.DiffSession();
+      return {
+        name: f.spec.name,
+        fn: () => {
+          session.set_a(f.a);
+          session.set_b(f.b);
+          session.compute_packed(true);
+          session.chunks_buffer();
+          session.changes_buffer();
+        },
+      };
+    }),
+    FULL_DIFF_TIERS,
+  );
 } else {
   progress(
     "\n(imara-diff WASM not found at crates/diff-wasm/pkg-node — run `bun run bench:build-wasm` to enable that section)\n",
   );
 }
 
-// Pre-compute baseline chunks + a 1-char insertion for incremental scenarios.
-progress("\nPre-computing baseline chunks...\n");
-interface Baseline {
-  fixture: Fixture;
-  chunks0: readonly Chunk[];
-  newB: Fixture["textB"];
-  change: ChangeSet;
-}
-const baselines = new Map<string, Baseline>();
-for (const f of fixtures) {
-  progress(`  ${f.spec.name.padEnd(35)}  diffing... `);
-  const t0 = performance.now();
-  const chunks0 = Chunk.build(f.textA, f.textB);
-  const insertAt = Math.floor(f.textB.length / 2);
-  const change = ChangeSet.of(
-    { from: insertAt, to: insertAt, insert: "x" },
-    f.textB.length,
-  );
-  const newB = change.apply(f.textB);
-  baselines.set(f.spec.name, { fixture: f, chunks0, newB, change });
-  progress(
-    `${(performance.now() - t0).toFixed(0)}ms (${chunks0.length} chunks)\n`,
-  );
-}
+if (imaraMod) {
+  const imara = imaraMod as {
+    DiffSession: new () => DiffSessionLike & { free?: () => void };
+  };
 
-// Section 2: incremental update — what runs on every keystroke. Skip
-// fixtures where updateB observably falls back to a full diff (one giant
-// chunk) — those would dominate the suite without showing anything new.
-await runSection(
-  "Chunk.updateB (1-char edit on B)",
-  fixtures
-    .filter((f) => !f.spec.skipKeystroke)
-    .map((f) => {
+  progress("\nPre-computing packed baseline chunks...\n");
+  interface Baseline {
+    fixture: Fixture;
+    chunks0: BenchDiffChunkSet;
+    newB: string;
+    viewportA: readonly [number, number];
+    viewportB: readonly [number, number];
+  }
+  const baselines = new Map<string, Baseline>();
+  for (const f of fixtures) {
+    progress(`  ${f.spec.name.padEnd(35)}  diffing... `);
+    const t0 = performance.now();
+    const session = new imara.DiffSession();
+    const chunks0 = computeChunkSet(session, f.a, f.b, true);
+    session.free?.();
+    const newB = insertOneCharAtMiddle(f.b);
+    const centerA = Math.floor(f.a.length / 2);
+    const centerB = Math.floor(newB.length / 2);
+    baselines.set(f.spec.name, {
+      fixture: f,
+      chunks0,
+      newB,
+      viewportA: viewportAround(f.a, centerA),
+      viewportB: viewportAround(newB, centerB),
+    });
+    progress(
+      `${(performance.now() - t0).toFixed(0)}ms (${chunks0.length} chunks)\n`,
+    );
+  }
+
+  await runSection(
+    "DiffSession setB+compute+buffers (1-char edit on B)",
+    fixtures.map((f) => {
+      const bl = baselines.get(f.spec.name)!;
+      const session = new imara.DiffSession();
+      session.set_a(f.a);
+      session.set_b(f.b);
+      session.compute_packed(true);
+      return {
+        name: f.spec.name,
+        fn: () => {
+          session.set_b(bl.newB);
+          session.compute_packed(true);
+          session.chunks_buffer();
+          session.changes_buffer();
+        },
+      };
+    }),
+  );
+
+  await runSection(
+    "buildDecorations full (side b)",
+    fixtures.map((f) => {
       const bl = baselines.get(f.spec.name)!;
       return {
         name: f.spec.name,
         fn: () => {
-          Chunk.updateB(bl.chunks0, f.textA, bl.newB, bl.change);
+          buildDecorations("b", bl.chunks0);
         },
       };
     }),
-);
+  );
 
-await runSection(
-  "buildDecorations (side b)",
-  fixtures.map((f) => {
-    const bl = baselines.get(f.spec.name)!;
-    return {
-      name: f.spec.name,
-      fn: () => {
-        buildDecorations("b", bl.chunks0, f.textB);
-      },
-    };
-  }),
-);
+  await runSection(
+    "buildDecorations viewport (side b)",
+    fixtures.map((f) => {
+      const bl = baselines.get(f.spec.name)!;
+      const [from, to] = bl.viewportB;
+      return {
+        name: f.spec.name,
+        fn: () => {
+          buildDecorations("b", bl.chunks0, from, to);
+        },
+      };
+    }),
+  );
 
-await runSection(
-  "buildGutterRangeSet (side b)",
-  fixtures.map((f) => {
-    const bl = baselines.get(f.spec.name)!;
-    return {
-      name: f.spec.name,
-      fn: () => {
-        buildGutterRangeSet("b", bl.chunks0, f.textB);
-      },
-    };
-  }),
-);
-
-// Section 5: combined — what the editor actually does on a single keystroke.
-await runSection(
-  "per-keystroke combined",
-  fixtures
-    .filter((f) => !f.spec.skipKeystroke)
-    .map((f) => {
+  await runSection(
+    "buildGutterRangeSet full (side b)",
+    fixtures.map((f) => {
       const bl = baselines.get(f.spec.name)!;
       return {
         name: f.spec.name,
         fn: () => {
-          const chunks = Chunk.updateB(bl.chunks0, f.textA, bl.newB, bl.change);
-          buildDecorations("a", chunks, f.textA);
-          buildDecorations("b", chunks, bl.newB);
-          buildGutterRangeSet("a", chunks, f.textA);
-          buildGutterRangeSet("b", chunks, bl.newB);
+          buildGutterRangeSet("b", bl.chunks0);
         },
       };
     }),
-);
+  );
+
+  const countStats = (chunks: BenchDiffChunkSet): void => {
+    let added = 0;
+    let removed = 0;
+    for (let i = 0; i < chunks.length; i++) {
+      removed += countChangedLines(chunks.aText, chunks.fromA(i), chunks.endA(i));
+      added += countChangedLines(chunks.bText, chunks.fromB(i), chunks.endB(i));
+    }
+    if (added + removed < 0) throw new Error("unreachable");
+  };
+
+  await runSection(
+    "per-keystroke production combined",
+    fixtures.map((f) => {
+      const bl = baselines.get(f.spec.name)!;
+      const session = new imara.DiffSession();
+      session.set_a(f.a);
+      session.set_b(f.b);
+      session.compute_packed(true);
+      const [aFrom, aTo] = bl.viewportA;
+      const [bFrom, bTo] = bl.viewportB;
+      return {
+        name: f.spec.name,
+        fn: () => {
+          session.set_b(bl.newB);
+          session.compute_packed(true);
+          const chunks = chunkSetFromSession(session, f.a, bl.newB);
+          countStats(chunks);
+          buildDecorations("a", chunks, aFrom, aTo);
+          buildDecorations("b", chunks, bFrom, bTo);
+          buildGutterRangeSet("a", chunks);
+          buildGutterRangeSet("b", chunks);
+        },
+      };
+    }),
+  );
+}
 
 await runSection(
   "detectLanguage",

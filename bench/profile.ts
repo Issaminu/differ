@@ -12,14 +12,22 @@ import { mkdir, writeFile, rm } from "node:fs/promises";
 import path from "node:path";
 import { Session } from "node:inspector/promises";
 import { Chunk } from "@codemirror/merge";
-import { ChangeSet } from "@codemirror/state";
 
 import {
   buildDecorations,
   buildGutterRangeSet,
+  countChangedLines,
 } from "../src/merge/diffDecorations.ts";
 import { detectLanguage } from "../src/merge/languageDetect.ts";
 import { FIXTURES, buildFixture } from "./fixtures.ts";
+import {
+  chunkSetFromSession,
+  computeChunkSet,
+  insertOneCharAtMiddle,
+  viewportAround,
+  type BenchDiffChunkSet,
+  type DiffSessionLike,
+} from "./packedDiff.ts";
 
 const OUT_DIR = path.resolve(import.meta.dirname, "profiles");
 
@@ -112,59 +120,94 @@ async function main(): Promise<void> {
 
   const fixtures = FIXTURES.map(buildFixture);
   const results: ProfileResult[] = [];
+  const imaraMod = await import(
+    "../crates/diff-wasm/pkg-node/differ_diff_wasm.js"
+  ).catch(() => null);
+  const imara = imaraMod as null | {
+    DiffSession: new () => DiffSessionLike & { free?: () => void };
+  };
+
+  const countStats = (chunks: BenchDiffChunkSet): void => {
+    let added = 0;
+    let removed = 0;
+    for (let i = 0; i < chunks.length; i++) {
+      removed += countChangedLines(chunks.aText, chunks.fromA(i), chunks.endA(i));
+      added += countChangedLines(chunks.bText, chunks.fromB(i), chunks.endB(i));
+    }
+    if (added + removed < 0) throw new Error("unreachable");
+  };
 
   for (const f of fixtures) {
-    // Pre-build a baseline chunk set the same way the bench does. For the
-    // pathologically-slow disjoint cases we skip baseline computation —
-    // they only contribute to chunk-build profiles, not the keystroke/deco
-    // ones that need a chunks0.
-    let chunks0: readonly Chunk[] | null = null;
-    let newB = f.textB;
-    let change: ChangeSet | null = null;
-    if (!f.spec.skipKeystroke) {
-      console.log(`prep baseline for ${f.spec.name}...`);
-      chunks0 = Chunk.build(f.textA, f.textB);
-      const insertAt = Math.floor(f.textB.length / 2);
-      change = ChangeSet.of(
-        { from: insertAt, to: insertAt, insert: "x" },
-        f.textB.length,
-      );
-      newB = change.apply(f.textB);
-    }
-
     const scenarios: { kind: string; fn: () => void; skip?: boolean }[] = [
       {
-        kind: "chunk-build",
+        kind: "legacy-chunk-build",
         fn: () => { Chunk.build(f.textA, f.textB); },
         skip: f.spec.skipFullDiff,
       },
-      {
-        kind: "chunk-updateB",
-        fn: () => { Chunk.updateB(chunks0!, f.textA, newB, change!); },
-        skip: f.spec.skipKeystroke,
-      },
-      {
-        kind: "deco",
-        fn: () => { buildDecorations("b", chunks0!, f.textB); },
-        skip: f.spec.skipKeystroke,
-      },
-      {
-        kind: "gutter",
-        fn: () => { buildGutterRangeSet("b", chunks0!, f.textB); },
-        skip: f.spec.skipKeystroke,
-      },
-      {
-        kind: "combined",
-        fn: () => {
-          const chunks = Chunk.updateB(chunks0!, f.textA, newB, change!);
-          buildDecorations("a", chunks, f.textA);
-          buildDecorations("b", chunks, newB);
-          buildGutterRangeSet("a", chunks, f.textA);
-          buildGutterRangeSet("b", chunks, newB);
-        },
-        skip: f.spec.skipKeystroke,
-      },
     ];
+
+    if (imara) {
+      console.log(`prep packed baseline for ${f.spec.name}...`);
+      const baselineSession = new imara.DiffSession();
+      const chunks0 = computeChunkSet(baselineSession, f.a, f.b, true);
+      baselineSession.free?.();
+      const newB = insertOneCharAtMiddle(f.b);
+      const viewportA = viewportAround(f.a, Math.floor(f.a.length / 2));
+      const viewportB = viewportAround(newB, Math.floor(newB.length / 2));
+
+      const fullSession = new imara.DiffSession();
+      const editSession = new imara.DiffSession();
+      editSession.set_a(f.a);
+      editSession.set_b(f.b);
+      editSession.compute_packed(true);
+
+      scenarios.push(
+        {
+          kind: "imara-set-compute-buffers",
+          fn: () => {
+            fullSession.set_a(f.a);
+            fullSession.set_b(f.b);
+            fullSession.compute_packed(true);
+            fullSession.chunks_buffer();
+            fullSession.changes_buffer();
+          },
+        },
+        {
+          kind: "imara-setB-compute-buffers",
+          fn: () => {
+            editSession.set_b(newB);
+            editSession.compute_packed(true);
+            editSession.chunks_buffer();
+            editSession.changes_buffer();
+          },
+        },
+        {
+          kind: "deco-full",
+          fn: () => { buildDecorations("b", chunks0); },
+        },
+        {
+          kind: "deco-viewport",
+          fn: () => { buildDecorations("b", chunks0, viewportB[0], viewportB[1]); },
+        },
+        {
+          kind: "gutter-full",
+          fn: () => { buildGutterRangeSet("b", chunks0); },
+        },
+        {
+          kind: "combined-production",
+          fn: () => {
+            editSession.set_b(newB);
+            editSession.compute_packed(true);
+            const chunks = chunkSetFromSession(editSession, f.a, newB);
+            countStats(chunks);
+            buildDecorations("a", chunks, viewportA[0], viewportA[1]);
+            buildDecorations("b", chunks, viewportB[0], viewportB[1]);
+            buildGutterRangeSet("a", chunks);
+            buildGutterRangeSet("b", chunks);
+          },
+        },
+      );
+    }
 
     for (const { kind, fn, skip } of scenarios) {
       if (skip) continue;

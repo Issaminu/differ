@@ -1,8 +1,9 @@
 # Bench
 
 Pure-logic benchmarks for the diff editor's hot paths. Measures the same
-functions production runs (no DOM, no CodeMirror view layer) so we can iterate
-on the diff/decoration cost without spinning up a webview.
+packed imara-diff + decoration functions production runs (no DOM, no
+CodeMirror view layer) so we can iterate on diff/decoration cost without
+spinning up a webview.
 
 ## Run
 
@@ -31,19 +32,21 @@ profile…
 For a quick text-only top-N, skip the GUI:
 
 ```sh
-bun run bench:analyze bench/profiles/chunk-build__medium_line-edits-50pct.cpuprofile
+bun run bench:analyze bench/profiles/combined-production__medium_line-edits-50pct.cpuprofile
 ```
 
 ## What we measure
 
 | Function | Where it runs in production |
 |---|---|
-| `Chunk.build` | First render after a swap / clear / restore — full diff |
-| `Chunk.updateB` | Per-keystroke incremental diff update (right pane edit) |
-| `buildDecorations` | Per-keystroke: chunks → DecorationSet (line tint + char highlight) |
-| `buildGutterRangeSet` | Per-keystroke: chunks → gutter line markers |
+| `legacy Chunk.build` | Old `@codemirror/merge` baseline, kept only for comparison |
+| `DiffSession set+compute+buffers` | Paste / swap / clear / restore — push both strings into WASM, full diff, copy packed buffers |
+| `DiffSession setB+compute+buffers` | Per-keystroke recompute when only the right pane changed |
+| `buildDecorations full` | Diagnostic: materialise all line/char decorations |
+| `buildDecorations viewport` | Production decoration overlay: chunks → visible DecorationSet |
+| `buildGutterRangeSet full` | Production gutter line markers |
+| `per-keystroke production combined` | Right-pane edit: set B, full imara recompute, stats, viewport decorations, gutters |
 | `detectLanguage` | Debounced 500ms after typing stops |
-| `per-keystroke combined` | All of the above for a single edit, both sides |
 
 ## Fixture matrix
 
