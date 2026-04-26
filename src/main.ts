@@ -82,6 +82,37 @@ async function main(): Promise<void> {
   await bootstrapHistory();
   installCapturePipeline();
 
+  // Bench hook — only present when the bundle was built with VITE_BENCH=1
+  // (set by bench/browser/harness.ts). The browser harness uses this to
+  // seed the diff state without going through Playwright's slow
+  // `locator.fill`, which would otherwise dominate the wall-clock
+  // numbers we care about.
+  if (import.meta.env.VITE_BENCH === "1") {
+    const { diffStats: stats } = await import("./state");
+    (window as unknown as { __bench?: unknown }).__bench = {
+      seed(a: string, b: string) {
+        originalText.value = a;
+        modifiedText.value = b;
+      },
+      // The current diff stats, freshly read from the signal. Used by the
+      // browser harness to wait until a seed has actually produced a diff
+      // before measuring downstream actions like keystrokes or scrolls.
+      stats() {
+        return { ...stats.value };
+      },
+      // Run an action and report the wall-clock ms from the start of the
+      // action to the next painted frame. The two-rAF wait ensures the
+      // browser has actually committed a paint, not just queued the work.
+      async timed<T>(action: () => Promise<T> | T): Promise<{ ms: number; result: T }> {
+        const t0 = performance.now();
+        const result = await action();
+        await new Promise<void>((r) => requestAnimationFrame(() => r()));
+        await new Promise<void>((r) => requestAnimationFrame(() => r()));
+        return { ms: performance.now() - t0, result };
+      },
+    };
+  }
+
   // Auto-updater (desktop only — hourly GitHub releases check + native
   // menu item under "Differ" → "Check for Updates…").
   if (import.meta.env.VITE_TARGET !== "web") {

@@ -16,7 +16,7 @@ import { mkdir, writeFile, rm } from "node:fs/promises";
 import path from "node:path";
 import { chromium, type Page, type CDPSession } from "playwright";
 
-import { buildFixture, type Fixture } from "../fixtures.ts";
+import { loadRealFixtures, type RealFixture } from "../fixtures/realFetch.ts";
 
 const OUT_DIR = path.resolve(import.meta.dirname, "traces");
 const PREVIEW_PORT = 4173; // vite preview default
@@ -28,11 +28,27 @@ const matches = (name: string): boolean =>
 
 interface Scenario {
   name: string;
-  // Set up the editor before we start tracing. Returns whatever the action
-  // step needs as context.
+  // Set up the editor before we start tracing — runs on a fresh page after
+  // the editor has mounted but before any CDP capture starts.
   setup: (page: Page) => Promise<void>;
-  // The action under test. Runs while CDP tracing is active.
-  action: (page: Page) => Promise<void>;
+  // The action under test. Runs while CDP tracing is active. Returns the
+  // wall-clock ms reported by `window.__bench.timed` (action → next paint).
+  action: (page: Page) => Promise<number>;
+}
+
+// In-page bench API exposed by main.ts when the bundle is built with
+// VITE_BENCH=1. We re-declare its shape here so we don't import the runtime.
+interface BenchHook {
+  seed(a: string, b: string): void;
+  stats(): { added: number; removed: number };
+  timed<T>(action: () => Promise<T> | T): Promise<{ ms: number; result: T }>;
+}
+type WithBench = { __bench: BenchHook };
+
+declare global {
+  interface Window {
+    __bench: BenchHook;
+  }
 }
 
 // ---- vite preview lifecycle ----
@@ -40,9 +56,12 @@ interface Scenario {
 async function startPreview(): Promise<ChildProcess> {
   // We bench the *web* build because the Tauri target tries to import
   // Tauri-only APIs at startup, which fails in plain Chrome. The web build
-  // is what real browser users would load anyway.
-  console.log("Building web bundle...");
-  await runOnce("bun", ["run", "build:web"]);
+  // is what real browser users would load anyway. VITE_BENCH=1 unlocks the
+  // window.__bench hook the harness uses to seed editor state directly.
+  const benchEnv = { VITE_TARGET: "web", VITE_BENCH: "1" };
+  console.log("Building web bundle (with VITE_BENCH=1)...");
+  await runOnce("bun", ["x", "tsc", "--noEmit"], benchEnv);
+  await runOnce("bun", ["x", "vite", "build"], benchEnv);
 
   console.log("Starting vite preview...");
   const proc = spawn("bun", ["x", "vite", "preview", "--port", String(PREVIEW_PORT)], {
@@ -63,57 +82,74 @@ async function startPreview(): Promise<ChildProcess> {
   return proc;
 }
 
-function runOnce(cmd: string, args: string[]): Promise<void> {
+function runOnce(
+  cmd: string,
+  args: string[],
+  env: Record<string, string> = {},
+): Promise<void> {
   return new Promise((resolve, reject) => {
-    const p = spawn(cmd, args, { stdio: "inherit" });
+    const p = spawn(cmd, args, {
+      stdio: "inherit",
+      env: { ...process.env, ...env },
+    });
     p.on("exit", (code) => (code === 0 ? resolve() : reject(new Error(`${cmd} exited ${code}`))));
   });
 }
 
 // ---- helpers ----
 
-// Wait until the editor has mounted both panes and the wasm has loaded.
-// Both panes get CodeMirror's `.cm-content` element on mount; the diff also
-// waits for our chunksField to be populated (at least one tick after mount).
+// Wait until the editor has mounted, the wasm bootstrap has settled, and
+// window.__bench is exposed (the harness needs it to seed state and time).
 async function waitForEditorReady(page: Page): Promise<void> {
   await page.waitForSelector(".differ-pane[data-side='a'] .cm-content");
   await page.waitForSelector(".differ-pane[data-side='b'] .cm-content");
-  // Give effects + wasm init a beat to settle. The bootstrap is async due
-  // to top-level-await on the wasm import.
   await page.waitForFunction(
-    () => {
-      const cm = document.querySelector(".differ-pane[data-side='a'] .cm-content");
-      return cm !== null && (cm as HTMLElement).isContentEditable;
-    },
+    () => typeof (window as unknown as Partial<WithBench>).__bench === "object",
     null,
     { timeout: 10000 },
   );
-  // One more requestAnimationFrame to flush the first paint.
   await page.evaluate(() => new Promise<void>((r) => requestAnimationFrame(() => r())));
 }
 
-// Fill a pane by setting the contents directly via CodeMirror's ContentEditable
-// surface. `locator.fill()` works for our editor (it dispatches the
-// composition events CM listens for); we proved that in the Claude Preview
-// smoke test.
-async function fillPane(page: Page, side: "a" | "b", text: string): Promise<void> {
-  await page.locator(`.differ-pane[data-side='${side}'] .cm-content`).fill(text);
-}
-
-async function settle(page: Page, ms = 300): Promise<void> {
+async function settle(page: Page, ms = 200): Promise<void> {
   await page.waitForTimeout(ms);
 }
 
-// Wrap the action with CDP Tracing + CPU profiling. Saves both files under
-// bench/browser/traces/<name>.{json,cpuprofile}.
+// Seed both panes via the in-page bench hook. This bypasses Playwright's
+// slow `locator.fill` path so the wall-clock numbers reflect the editor's
+// own behaviour, not the test framework's.
+async function seed(page: Page, a: string, b: string): Promise<void> {
+  await page.evaluate(([aText, bText]) => window.__bench.seed(aText, bText), [a, b]);
+}
+
+// Wait until the diff signal has any non-zero added/removed count. More
+// reliable than polling for a CSS class because the bench hook reads from
+// the signal that drives the diffStats badge — populated immediately after
+// every chunks update. Throws if no diff appears within the timeout.
+async function waitForDiff(page: Page, timeoutMs = 30000): Promise<void> {
+  await page.waitForFunction(
+    () => {
+      const s = window.__bench.stats();
+      return s.added > 0 || s.removed > 0;
+    },
+    null,
+    { timeout: timeoutMs },
+  );
+}
+
+// Wrap an action with CDP Tracing + CPU profiling. The action must return
+// the in-page wall-clock ms (action → next paint) — that's the number we
+// actually report. Wall-clock ms measured here on the Node side would
+// include the CDP round-trip, which we don't care about.
+//
+// Saves a .trace.json (DevTools Performance loadable) and .cpuprofile
+// (speedscope) per scenario.
 async function captureTrace(
   page: Page,
   client: CDPSession,
   name: string,
-  action: () => Promise<void>,
-): Promise<{ wallMs: number }> {
-  await page.evaluate((label) => performance.mark(`${label}.start`), name);
-
+  action: () => Promise<number>,
+): Promise<{ inPageMs: number }> {
   await client.send("Profiler.enable");
   await client.send("Profiler.setSamplingInterval", { interval: 100 });
   await client.send("Profiler.start");
@@ -132,16 +168,12 @@ async function captureTrace(
     transferMode: "ReportEvents",
   });
 
-  const t0 = performance.now();
-  await action();
-  const wallMs = performance.now() - t0;
+  const inPageMs = await action();
 
   await client.send("Tracing.end");
   const events = await tracePromise;
   const profile = (await client.send("Profiler.stop")).profile;
   await client.send("Profiler.disable");
-
-  await page.evaluate((label) => performance.mark(`${label}.end`), name);
 
   const safe = name.replace(/[^a-z0-9._-]+/gi, "_");
   await writeFile(
@@ -152,99 +184,101 @@ async function captureTrace(
     path.join(OUT_DIR, `${safe}.cpuprofile`),
     JSON.stringify(profile),
   );
-  return { wallMs };
+  return { inPageMs };
 }
 
 // ---- scenarios ----
 
-const mediumLineEdits: Fixture = buildFixture({
-  name: "medium/line-edits-5pct",
-  lines: 2000,
-  shape: "line-edits",
-  density: 0.05,
-});
+function buildScenarios(fixtures: RealFixture[]): Scenario[] {
+  const scenarios: Scenario[] = [];
 
-const SCENARIOS: Scenario[] = [
-  {
-    // Initial diff render: paste a 2000-line file pair, measure how long
-    // until the diff is visibly highlighted. This is the "first paint" path.
-    name: "first-paint-2k",
-    setup: async () => {
-      // Start clean.
-    },
-    action: async (page) => {
-      await fillPane(page, "a", mediumLineEdits.a);
-      await fillPane(page, "b", mediumLineEdits.b);
-      // Wait for the diff badge to update (any chunk tint visible on either pane).
-      await page.waitForFunction(
-        () =>
-          document.querySelector(".differ-pane[data-side='b'] .cm-changedLine") !== null,
-        null,
-        { timeout: 10000 },
-      );
-    },
-  },
-  {
-    // Per-keystroke cost on top of an established 2 k-line diff. We seed
-    // both panes during setup so the action measures only the recompute +
-    // repaint after one character is typed.
-    name: "keystroke-on-2k-diff",
-    setup: async (page) => {
-      await fillPane(page, "a", mediumLineEdits.a);
-      await fillPane(page, "b", mediumLineEdits.b);
-      await page.waitForFunction(
-        () =>
-          document.querySelector(".differ-pane[data-side='b'] .cm-changedLine") !== null,
-        null,
-        { timeout: 10000 },
-      );
-      await settle(page);
-    },
-    action: async (page) => {
-      const pane = page.locator(".differ-pane[data-side='b'] .cm-content");
-      await pane.click();
-      await pane.press("End");
-      await pane.pressSequentially("X", { delay: 0 });
-      // Two RAFs to capture compute + paint.
-      await page.evaluate(
-        () => new Promise<void>((r) => requestAnimationFrame(() => requestAnimationFrame(() => r()))),
-      );
-    },
-  },
-  {
-    // Sustained scrolling through a 2 k-line diff with ~100 chunks. The
-    // chunks visible at any time should be small but the *gutter range set*
-    // covers all 2 k lines, so the cost is dominated by what CM repaints
-    // each frame.
-    name: "scroll-2k-diff",
-    setup: async (page) => {
-      await fillPane(page, "a", mediumLineEdits.a);
-      await fillPane(page, "b", mediumLineEdits.b);
-      await page.waitForFunction(
-        () =>
-          document.querySelector(".differ-pane[data-side='b'] .cm-changedLine") !== null,
-        null,
-        { timeout: 10000 },
-      );
-      await settle(page);
-    },
-    action: async (page) => {
-      // Programmatically scroll the right pane through its full extent,
-      // 200 px at a time, one frame between each.
-      await page.evaluate(async () => {
-        const pane = document.querySelector(
-          ".differ-pane[data-side='b'] .cm-scroller",
-        ) as HTMLElement;
-        const total = pane.scrollHeight - pane.clientHeight;
-        const step = 200;
-        for (let y = 0; y <= total; y += step) {
-          pane.scrollTop = y;
-          await new Promise<void>((r) => requestAnimationFrame(() => r()));
-        }
-      });
-    },
-  },
-];
+  for (const fixture of fixtures) {
+    // 1. "Paste both panes": start clean, seed both panes via the bench
+    // hook (one transaction per side), measure ms from seed → next paint
+    // with the diff fully rendered. This is what a user feels when they
+    // paste-paste-look.
+    scenarios.push({
+      name: `${fixture.name}/paste-both`,
+      setup: async (page) => {
+        await page.evaluate(() => window.__bench.seed("", ""));
+        await settle(page);
+      },
+      action: async (page) =>
+        page
+          .evaluate(
+            ([a, b]) =>
+              window.__bench.timed(() => window.__bench.seed(a, b)).then((r) => r.ms),
+            [fixture.a, fixture.b],
+          ),
+    });
+
+    // 2. "Keystroke on established diff": seed both panes during setup,
+    // wait for paint, then time a single character insertion on side B at
+    // mid-document. Measures the per-keystroke recompute + repaint cost
+    // a user feels while editing inside an already-diffed pair.
+    scenarios.push({
+      name: `${fixture.name}/keystroke`,
+      setup: async (page) => {
+        await seed(page, fixture.a, fixture.b);
+        await waitForDiff(page);
+        await settle(page);
+      },
+      action: async (page) =>
+        page.evaluate(() =>
+          window.__bench
+            .timed(() => {
+              const view = (
+                document.querySelector(
+                  ".differ-pane[data-side='b'] .cm-content",
+                ) as HTMLElement
+              ).closest(".cm-editor")! as HTMLElement & { cmView?: unknown };
+              // Dispatch a real input event so CM's transaction machinery
+              // runs end-to-end, not via low-level state surgery. Inserting
+              // at the current selection (CM places it sensibly on focus).
+              const cm = document.querySelector(
+                ".differ-pane[data-side='b'] .cm-content",
+              ) as HTMLElement;
+              cm.focus();
+              document.execCommand("insertText", false, "X");
+              void view;
+            })
+            .then((r) => r.ms),
+        ),
+    });
+
+    // 3. "Full programmatic scroll": seed, then scroll the right pane
+    // through its full extent and measure the total wall time. We use
+    // requestAnimationFrame between scroll steps so the browser actually
+    // paints each frame. The reported ms is wall time end-to-end; divide
+    // by frame count for per-frame.
+    scenarios.push({
+      name: `${fixture.name}/scroll`,
+      setup: async (page) => {
+        await seed(page, fixture.a, fixture.b);
+        await waitForDiff(page);
+        await settle(page);
+      },
+      action: async (page) =>
+        page.evaluate(async () =>
+          window.__bench
+            .timed(async () => {
+              const pane = document.querySelector(
+                ".differ-pane[data-side='b'] .cm-scroller",
+              ) as HTMLElement;
+              const total = pane.scrollHeight - pane.clientHeight;
+              const steps = 60;
+              for (let i = 0; i <= steps; i++) {
+                pane.scrollTop = (total * i) / steps;
+                await new Promise<void>((r) => requestAnimationFrame(() => r()));
+              }
+            })
+            .then((r) => r.ms),
+        ),
+    });
+  }
+
+  return scenarios;
+}
 
 // ---- main ----
 
@@ -252,13 +286,22 @@ async function main(): Promise<void> {
   await rm(OUT_DIR, { recursive: true, force: true });
   await mkdir(OUT_DIR, { recursive: true });
 
+  console.log("Loading real fixtures (fetches once, then cached)...");
+  const fixtures = await loadRealFixtures();
+  for (const f of fixtures) {
+    console.log(
+      `  ${f.name.padEnd(34)}  a=${f.a.length.toLocaleString().padStart(9)}b  b=${f.b.length.toLocaleString().padStart(9)}b`,
+    );
+  }
+  const scenarios = buildScenarios(fixtures);
+
   const preview = await startPreview();
   let exitCode = 0;
   try {
     const browser = await chromium.launch();
-    const summary: { name: string; wallMs: number; outFile: string }[] = [];
+    const summary: { name: string; ms: number | null; error?: string }[] = [];
 
-    for (const scenario of SCENARIOS) {
+    for (const scenario of scenarios) {
       if (!matches(scenario.name)) continue;
       console.log(`\n=== ${scenario.name} ===`);
 
@@ -271,15 +314,15 @@ async function main(): Promise<void> {
         await scenario.setup(page);
         await settle(page);
 
-        const { wallMs } = await captureTrace(page, client, scenario.name, () =>
+        const { inPageMs } = await captureTrace(page, client, scenario.name, () =>
           scenario.action(page),
         );
-        console.log(`  wall: ${wallMs.toFixed(1)}ms`);
-        summary.push({
-          name: scenario.name,
-          wallMs,
-          outFile: `bench/browser/traces/${scenario.name}.{trace.json,cpuprofile}`,
-        });
+        console.log(`  ${inPageMs.toFixed(1)} ms`);
+        summary.push({ name: scenario.name, ms: inPageMs });
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        console.log(`  FAILED: ${msg.split("\n")[0]}`);
+        summary.push({ name: scenario.name, ms: null, error: msg.split("\n")[0] });
       } finally {
         await context.close();
       }
@@ -287,16 +330,15 @@ async function main(): Promise<void> {
 
     await browser.close();
 
-    console.log("\nSummary:");
+    console.log("\nSummary (ms = action → next paint, in-page wall clock):");
+    const nameW = Math.max(8, ...summary.map((s) => s.name.length));
+    console.log(`  ${"scenario".padEnd(nameW)}  ${"ms".padStart(10)}`);
+    console.log(`  ${"-".repeat(nameW)}  ${"-".repeat(10)}`);
     for (const r of summary) {
-      console.log(`  ${r.name.padEnd(28)} ${r.wallMs.toFixed(1).padStart(8)} ms`);
+      const ms = r.ms === null ? "FAILED" : r.ms.toFixed(1);
+      console.log(`  ${r.name.padEnd(nameW)}  ${ms.padStart(10)}${r.error ? "  " + r.error : ""}`);
     }
-    console.log(
-      "\nLoad .trace.json files in Chrome DevTools → Performance → Load profile…",
-    );
-    console.log(
-      "Load .cpuprofile files at https://www.speedscope.app or in DevTools.",
-    );
+    console.log("\nTraces: bench/browser/traces/*.{trace.json,cpuprofile}");
   } catch (err) {
     console.error(err);
     exitCode = 1;

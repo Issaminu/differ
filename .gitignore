@@ -15,6 +15,7 @@ dist/
 ## Bench profiler output
 bench/profiles/
 bench/browser/traces/
+bench/fixtures/real/cache/
 
 ## Rust build artifacts for the diff-wasm crate
 crates/diff-wasm/target/
