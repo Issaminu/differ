@@ -81,6 +81,20 @@ async function main(): Promise<void> {
   // History: load + capture pipeline
   await bootstrapHistory();
   installCapturePipeline();
+
+  // Auto-updater (desktop only — hourly GitHub releases check + native
+  // menu item under "Differ" → "Check for Updates…").
+  if (import.meta.env.VITE_TARGET !== "web") {
+    const [{ startUpdateChecker, triggerUpdateCheck }, { listen }] =
+      await Promise.all([
+        import("./chrome/updater"),
+        import("@tauri-apps/api/event"),
+      ]);
+    startUpdateChecker();
+    void listen("update-check-requested", () => {
+      void triggerUpdateCheck();
+    });
+  }
 }
 
 function wireLanguageDetection(_merge: MergeController): void {

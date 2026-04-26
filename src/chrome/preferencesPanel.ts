@@ -14,6 +14,15 @@ import {
   type ShortcutActionId,
 } from "./shortcutSettings";
 import { lucideSvg } from "./lucideSvg";
+import {
+  humanRelativeSince,
+  lastCheckedAt,
+  relativeTimeTick,
+  triggerUpdateCheck,
+  updateAvailableVersion,
+  updateStatus,
+  type UpdateStatus,
+} from "./updater";
 
 const PREFS_ICON = lucideSvg(Settings, { size: 16 });
 const PREF_CLOSE_ICON = lucideSvg(X, { size: 14 });
@@ -74,6 +83,13 @@ export function mountPreferencesPanel(host: HTMLElement): PreferencesPanelContro
                 <img class="pref-about-app-icon" src="/app-icon.png" width="52" height="52" alt="Differ" decoding="async" />
               </div>
               <p class="pref-about-copy">A native two-pane diff shell built for fast editing, shared history navigation, and lightweight snapshot recall.</p>
+              <div class="pref-about-update" data-desktop-only hidden>
+                <button class="tb-btn pref-about-update-btn" type="button" data-action="check-update">Check for Updates</button>
+                <div class="pref-about-update-status">
+                  <span class="pref-about-update-state"></span>
+                  <span class="pref-about-update-meta"></span>
+                </div>
+              </div>
               <div class="pref-about-links">
                 <a class="pref-about-link" href="${ABOUT_X_PROFILE_URL}" target="_blank" rel="noopener noreferrer" aria-label="Open profile on X in your browser">
                   ${ABOUT_X_ICON}
@@ -349,6 +365,7 @@ export function mountPreferencesPanel(host: HTMLElement): PreferencesPanelContro
   renderShortcutRows();
   setActiveTab(activeTab);
   setOpen(false);
+  wireUpdateRow(host);
 
   trigger.addEventListener("click", (event) => {
     event.stopPropagation();
@@ -407,4 +424,66 @@ export function mountPreferencesPanel(host: HTMLElement): PreferencesPanelContro
     isOpen: () => !modal.hidden,
     setOpen,
   };
+}
+
+function updateStatusLabel(status: UpdateStatus, version: string | null): string {
+  switch (status) {
+    case "checking":
+      return "Checking for updates…";
+    case "downloading":
+      return version ? `Downloading update (v${version})…` : "Downloading update…";
+    case "ready":
+      return version
+        ? `Update ready — restart Differ to apply v${version}`
+        : "Update ready — restart Differ to apply";
+    case "up-to-date":
+      return "You're up to date";
+    case "error":
+      return "Couldn't check for updates";
+    case "idle":
+    default:
+      return "";
+  }
+}
+
+function wireUpdateRow(host: HTMLElement): void {
+  const row = host.querySelector<HTMLDivElement>(".pref-about-update");
+  const button = host.querySelector<HTMLButtonElement>('[data-action="check-update"]');
+  const stateEl = host.querySelector<HTMLSpanElement>(".pref-about-update-state");
+  const metaEl = host.querySelector<HTMLSpanElement>(".pref-about-update-meta");
+  if (!row || !button || !stateEl || !metaEl) return;
+
+  // Hide on web — auto-update only makes sense for the desktop bundles.
+  if (import.meta.env.VITE_TARGET === "web") {
+    row.hidden = true;
+    return;
+  }
+  row.hidden = false;
+
+  button.addEventListener("click", () => {
+    void triggerUpdateCheck();
+  });
+
+  effect(() => {
+    const status = updateStatus.value;
+    const version = updateAvailableVersion.value;
+    const busy = status === "checking" || status === "downloading";
+    button.disabled = busy || status === "ready";
+    button.textContent =
+      status === "ready"
+        ? "Restart to update"
+        : busy
+          ? "Checking…"
+          : "Check for Updates";
+    stateEl.textContent = updateStatusLabel(status, version);
+    row.dataset.status = status;
+  });
+
+  effect(() => {
+    relativeTimeTick.value;
+    const ts = lastCheckedAt.value;
+    metaEl.textContent = ts
+      ? `Last checked ${humanRelativeSince(ts)}`
+      : "Never checked";
+  });
 }

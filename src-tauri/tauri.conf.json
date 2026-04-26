@@ -1,7 +1,7 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "Differ",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "identifier": "com.issaminu.differ",
   "build": {
     "beforeDevCommand": "bun run dev",
@@ -50,5 +50,12 @@
       "icons/icon.ico"
     ]
   },
-  "plugins": {}
+  "plugins": {
+    "updater": {
+      "endpoints": [
+        "https://github.com/Issaminu/differ/releases/latest/download/latest.json"
+      ],
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEI5RTdBOTRDQjRBMjU5QUIKUldTcldhSzBUS25udVpwMi9YMjNIZ3hzakpRRGFhVnRaMHBZQm11ZS9UcVVKbnZGc0dsWmFkMW8K"
+    }
+  }
 }

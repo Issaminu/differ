@@ -741,6 +741,53 @@ body {
   display: block;
 }
 
+.pref-about-update {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--bg-elevated);
+}
+.pref-about-update[hidden] { display: none; }
+
+.pref-about-update-btn {
+  flex-shrink: 0;
+  -webkit-app-region: no-drag;
+}
+.pref-about-update-btn:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.pref-about-update-status {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.pref-about-update-state {
+  font-size: 12px;
+  color: var(--fg);
+  line-height: 1.3;
+}
+.pref-about-update-state:empty { display: none; }
+
+.pref-about-update-meta {
+  font-size: 11px;
+  color: var(--fg-muted);
+  line-height: 1.3;
+}
+
+.pref-about-update[data-status="error"] .pref-about-update-state {
+  color: var(--danger, var(--fg));
+}
+.pref-about-update[data-status="ready"] .pref-about-update-state {
+  font-weight: 600;
+}
+
 
 #app {
   position: absolute;
