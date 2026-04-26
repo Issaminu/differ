@@ -60,14 +60,20 @@ interface Row {
 }
 
 function rowOf(t: { name: string; result: NonNullable<Bench["tasks"][number]["result"]> }): Row {
+  // Tinybench occasionally returns a result missing `throughput` (or with
+  // partial latency stats) when a task runs fewer iterations than its
+  // sampling math expects — e.g. a 14 s single-iteration `medium/line-edits-50pct`
+  // Chunk.build. Read everything defensively.
+  const lat = t.result.latency ?? ({} as Record<string, number | undefined>);
+  const tp = t.result.throughput ?? ({} as Record<string, number | undefined>);
   return {
     name: t.name,
-    hz: t.result.throughput.mean ?? 0,
-    meanMs: t.result.latency.mean ?? 0,
-    p50Ms: t.result.latency.p50 ?? 0,
-    p99Ms: t.result.latency.p99 ?? 0,
-    rmePct: t.result.latency.rme ?? 0,
-    samples: t.result.latency.samplesCount ?? 0,
+    hz: tp.mean ?? 0,
+    meanMs: lat.mean ?? 0,
+    p50Ms: lat.p50 ?? 0,
+    p99Ms: lat.p99 ?? 0,
+    rmePct: lat.rme ?? 0,
+    samples: lat.samplesCount ?? 0,
   };
 }
 
