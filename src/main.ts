@@ -88,19 +88,34 @@ async function main(): Promise<void> {
   // `locator.fill`, which would otherwise dominate the wall-clock
   // numbers we care about.
   if (import.meta.env.VITE_BENCH === "1") {
-    const { diffStats: stats } = await import("./state");
-    // Per-update counter on diffStats. Incremented every time syncDiffState
-    // writes a new value to the signal — gives `timed({ waitForDiff: true })`
-    // a way to detect "the diff has been applied" without polling for value
-    // changes (which can falsely match if the new diff happens to have the
-    // same added/removed counts as the previous one).
+    const [{ diffStats: stats }, { historyOpen }] = await Promise.all([
+      import("./state"),
+      import("./state"),
+    ]);
     let statsRev = 0;
     effect(() => {
-      // Touch the signal so the effect subscribes — bumps rev whenever
-      // syncDiffState writes, including no-op writes of equal values.
       stats.value;
       statsRev++;
     });
+
+    // Resolve a position spec ("top" | "middle" | "end" | number) to a
+    // concrete document offset, snapped to the start of its line.
+    const resolveCursor = (
+      view: { state: { doc: { length: number; lineAt: (pos: number) => { from: number } } } },
+      spec: "top" | "middle" | "end" | number,
+    ): number => {
+      const len = view.state.doc.length;
+      const pos =
+        spec === "top"
+          ? 0
+          : spec === "end"
+            ? len
+            : spec === "middle"
+              ? Math.floor(len / 2)
+              : Math.max(0, Math.min(spec, len));
+      return view.state.doc.lineAt(pos).from;
+    };
+
     (window as unknown as { __bench?: unknown }).__bench = {
       seed(a: string, b: string) {
         originalText.value = a;
@@ -109,11 +124,25 @@ async function main(): Promise<void> {
       stats() {
         return { ...stats.value };
       },
-      // Run an action and report the wall-clock ms from the start of the
-      // action to the next painted frame. With `waitForDiff: true`, also
-      // wait until `diffStats` is updated — i.e. until the recompute has
-      // landed and chunks have been dispatched. Needed for honest
-      // measurement when computeDiff is async (Web Worker).
+      // Direct access to both EditorView instances. Lets bench scenarios
+      // dispatch real CM transactions for cursor placement, without
+      // routing through the contenteditable layer.
+      get views() {
+        return merge.views;
+      },
+      // Place the cursor (and focus) in the named side at a logical
+      // position. Snaps to line start so subsequent inserts produce
+      // clean diff chunks.
+      cursorAt(side: "a" | "b", pos: "top" | "middle" | "end" | number): void {
+        const view = side === "a" ? merge.views.a : merge.views.b;
+        const offset = resolveCursor(view, pos);
+        view.dispatch({ selection: { anchor: offset } });
+        view.focus();
+      },
+      // Toggle the history drawer — same path as the toolbar button.
+      toggleHistory(): void {
+        historyOpen.value = !historyOpen.value;
+      },
       async timed<T>(
         action: () => Promise<T> | T,
         opts?: { waitForDiff?: boolean },
@@ -129,6 +158,63 @@ async function main(): Promise<void> {
         await new Promise<void>((r) => requestAnimationFrame(() => r()));
         await new Promise<void>((r) => requestAnimationFrame(() => r()));
         return { ms: performance.now() - t0, result };
+      },
+      // Run `action` while sampling `requestAnimationFrame` deltas, return
+      // total ms + frame-time stats. The first sample is dropped because
+      // it captures the gap between scheduling rAF and the first frame
+      // (heavily timestamp-dependent on when we started). Reports mean,
+      // p50, p99 frame time, plus a "dropped at 60 Hz" count for any
+      // frame longer than 22 ms (16.67 ms target with a tolerance for
+      // measurement noise).
+      async timedFps(
+        action: () => Promise<unknown> | unknown,
+        opts?: { waitForDiff?: boolean },
+      ): Promise<{
+        ms: number;
+        frames: number;
+        meanFrameMs: number;
+        p50FrameMs: number;
+        p99FrameMs: number;
+        droppedAt60Hz: number;
+      }> {
+        const frameTimes: number[] = [];
+        let lastTs = performance.now();
+        let stop = false;
+        const tick = () => {
+          if (stop) return;
+          const now = performance.now();
+          frameTimes.push(now - lastTs);
+          lastTs = now;
+          requestAnimationFrame(tick);
+        };
+        requestAnimationFrame(tick);
+        const startRev = statsRev;
+        const t0 = performance.now();
+        await action();
+        if (opts?.waitForDiff) {
+          while (statsRev === startRev) {
+            await new Promise<void>((r) => setTimeout(r, 4));
+          }
+        }
+        await new Promise<void>((r) => requestAnimationFrame(() => r()));
+        await new Promise<void>((r) => requestAnimationFrame(() => r()));
+        const ms = performance.now() - t0;
+        stop = true;
+        // Drop the first sample (rAF startup jitter) and one trailing
+        // settle frame, then compute stats.
+        const trimmed = frameTimes.slice(1, -1);
+        const sorted = [...trimmed].sort((a, b) => a - b);
+        const at = (p: number) => sorted[Math.min(sorted.length - 1, Math.floor(sorted.length * p))] ?? 0;
+        const mean = trimmed.reduce((a, b) => a + b, 0) / Math.max(1, trimmed.length);
+        const dropped = trimmed.filter((t) => t > 22).length;
+        return {
+          ms,
+          frames: trimmed.length,
+          meanFrameMs: mean,
+          p50FrameMs: at(0.5),
+          p99FrameMs: at(0.99),
+          droppedAt60Hz: dropped,
+        };
       },
     };
   }

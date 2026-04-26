@@ -344,6 +344,9 @@ export interface MergeController {
   goBack: () => void;
   goForward: () => void;
   destroy: () => void;
+  // Exposed for bench instrumentation. Internal callers should prefer the
+  // higher-level methods above.
+  views: { a: EditorView; b: EditorView };
 }
 
 export function mountMergeView(host: HTMLElement): MergeController {
@@ -603,6 +606,7 @@ export function mountMergeView(host: HTMLElement): MergeController {
     goBack: editNav.goBack,
     goForward: editNav.goForward,
     destroy,
+    views: { a: viewA, b: viewB },
   };
 }
 

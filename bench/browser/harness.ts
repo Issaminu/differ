@@ -26,6 +26,19 @@ const filter = process.argv.slice(2).filter((s) => !s.startsWith("--"));
 const matches = (name: string): boolean =>
   filter.length === 0 || filter.some((f) => name.toLowerCase().includes(f.toLowerCase()));
 
+interface FpsStats {
+  meanFrameMs: number;
+  p50FrameMs: number;
+  p99FrameMs: number;
+  droppedAt60Hz: number;
+  frames: number;
+}
+
+interface ScenarioResult {
+  ms: number;
+  fps?: FpsStats;
+}
+
 interface Scenario {
   name: string;
   // Per-fixture route registration — runs on a fresh page so it can install
@@ -34,8 +47,9 @@ interface Scenario {
   // Set up the editor before we start tracing.
   setup: (page: Page) => Promise<void>;
   // The action under test. Runs while CDP tracing is active. Returns the
-  // wall-clock ms reported by `window.__bench.timed` (action → next paint).
-  action: (page: Page) => Promise<number>;
+  // wall-clock ms reported by `window.__bench.timed` (action → next paint),
+  // optionally with a per-frame distribution from `__bench.timedFps`.
+  action: (page: Page) => Promise<ScenarioResult>;
 }
 
 // In-page bench API exposed by main.ts when the bundle is built with
@@ -43,10 +57,23 @@ interface Scenario {
 interface BenchHook {
   seed(a: string, b: string): void;
   stats(): { added: number; removed: number };
+  cursorAt(side: "a" | "b", pos: "top" | "middle" | "end" | number): void;
+  toggleHistory(): void;
   timed<T>(
     action: () => Promise<T> | T,
     opts?: { waitForDiff?: boolean },
   ): Promise<{ ms: number; result: T }>;
+  timedFps(
+    action: () => Promise<unknown> | unknown,
+    opts?: { waitForDiff?: boolean },
+  ): Promise<{
+    ms: number;
+    frames: number;
+    meanFrameMs: number;
+    p50FrameMs: number;
+    p99FrameMs: number;
+    droppedAt60Hz: number;
+  }>;
 }
 type WithBench = { __bench: BenchHook };
 
@@ -187,8 +214,8 @@ async function captureTrace(
   page: Page,
   client: CDPSession,
   name: string,
-  action: () => Promise<number>,
-): Promise<{ inPageMs: number }> {
+  action: () => Promise<ScenarioResult>,
+): Promise<ScenarioResult> {
   await client.send("Profiler.enable");
   await client.send("Profiler.setSamplingInterval", { interval: 100 });
   await client.send("Profiler.start");
@@ -207,7 +234,7 @@ async function captureTrace(
     transferMode: "ReportEvents",
   });
 
-  const inPageMs = await action();
+  const result = await action();
 
   await client.send("Tracing.end");
   const events = await tracePromise;
@@ -223,7 +250,7 @@ async function captureTrace(
     path.join(OUT_DIR, `${safe}.cpuprofile`),
     JSON.stringify(profile),
   );
-  return { inPageMs };
+  return result;
 }
 
 // ---- scenarios ----
@@ -235,13 +262,13 @@ function buildScenarios(fixtures: RealFixture[]): Scenario[] {
     const fixture = fixtures[i];
     const id = `f${i}`;
     const prepare = (page: Page) => registerFixtureRoute(page, id, fixture.a, fixture.b);
+    // The new scenario set is heavy — 9 extra scenarios per fixture — so
+    // we only run them on the stress-* tier where they tell us something
+    // the smaller fixtures don't.
+    const heavy = fixture.name.startsWith("stress-");
 
-    // 1. "Paste both panes": start clean, then fetch the fixture content
-    // from the route and seed both panes inside `timed()`. waitForDiff
-    // makes the measurement include the time the recompute takes to land
-    // (chunks dispatched), so async (Web Worker) implementations don't
-    // get a misleadingly fast number from rAFs that fire before the
-    // worker comes back.
+    // ---- baseline scenarios (every fixture) ----
+
     scenarios.push({
       name: `${fixture.name}/paste-both`,
       prepare,
@@ -249,8 +276,8 @@ function buildScenarios(fixtures: RealFixture[]): Scenario[] {
         await page.evaluate(() => window.__bench.seed("", ""));
         await settle(page);
       },
-      action: async (page) =>
-        page.evaluate(
+      action: async (page) => ({
+        ms: await page.evaluate(
           (fixId) =>
             window.__bench
               .timed(
@@ -266,11 +293,9 @@ function buildScenarios(fixtures: RealFixture[]): Scenario[] {
               .then((r) => r.ms),
           id,
         ),
+      }),
     });
 
-    // 2. "Keystroke on established diff": seed both panes during setup,
-    // wait for paint, then time a single character insertion on side B.
-    // Same waitForDiff applies for honest async-vs-sync comparison.
     scenarios.push({
       name: `${fixture.name}/keystroke`,
       prepare,
@@ -279,8 +304,8 @@ function buildScenarios(fixtures: RealFixture[]): Scenario[] {
         await waitForDiff(page, 240_000);
         await settle(page);
       },
-      action: async (page) =>
-        page.evaluate(() =>
+      action: async (page) => ({
+        ms: await page.evaluate(() =>
           window.__bench
             .timed(
               () => {
@@ -294,11 +319,11 @@ function buildScenarios(fixtures: RealFixture[]): Scenario[] {
             )
             .then((r) => r.ms),
         ),
+      }),
     });
 
-    // 3. "Full programmatic scroll": seed, then scroll the right pane
-    // through its full extent, one rAF between each step. Reported ms is
-    // wall time end-to-end; divide by step count for per-frame.
+    // Scroll: now uses timedFps so we get frame-time distribution alongside
+    // total ms. 60-step rAF-paced scroll, same shape as before.
     scenarios.push({
       name: `${fixture.name}/scroll`,
       prepare,
@@ -308,21 +333,298 @@ function buildScenarios(fixtures: RealFixture[]): Scenario[] {
         await settle(page);
       },
       action: async (page) =>
-        page.evaluate(async () =>
+        page.evaluate(async () => {
+          const r = await window.__bench.timedFps(async () => {
+            const pane = document.querySelector(
+              ".differ-pane[data-side='b'] .cm-scroller",
+            ) as HTMLElement;
+            const total = pane.scrollHeight - pane.clientHeight;
+            const steps = 60;
+            for (let i = 0; i <= steps; i++) {
+              pane.scrollTop = (total * i) / steps;
+              await new Promise<void>((res) => requestAnimationFrame(() => res()));
+            }
+          });
+          return {
+            ms: r.ms,
+            fps: {
+              meanFrameMs: r.meanFrameMs,
+              p50FrameMs: r.p50FrameMs,
+              p99FrameMs: r.p99FrameMs,
+              droppedAt60Hz: r.droppedAt60Hz,
+              frames: r.frames,
+            },
+          };
+        }),
+    });
+
+    if (!heavy) continue;
+
+    // ---- edit-position scenarios (stress fixtures only) ----
+
+    for (const where of ["top", "middle", "end"] as const) {
+      scenarios.push({
+        name: `${fixture.name}/keystroke-${where}`,
+        prepare,
+        setup: async (page) => {
+          await seedFromRoute(page, id);
+          await waitForDiff(page, 240_000);
+          await settle(page);
+        },
+        action: async (page) => ({
+          ms: await page.evaluate(
+            (pos) =>
+              window.__bench
+                .timed(
+                  () => {
+                    window.__bench.cursorAt("b", pos);
+                    document.execCommand("insertText", false, "X");
+                  },
+                  { waitForDiff: true },
+                )
+                .then((r) => r.ms),
+            where,
+          ),
+        }),
+      });
+    }
+
+    // Rapid burst: fire 30 inserts back-to-back without waiting for the
+    // diff between each one. The recompute coalesces into one rAF; we
+    // wait for the *final* diff to land. Surfaces the cost when
+    // scheduleRecompute drops everything-but-the-latest under input
+    // pressure.
+    scenarios.push({
+      name: `${fixture.name}/keystroke-burst`,
+      prepare,
+      setup: async (page) => {
+        await seedFromRoute(page, id);
+        await waitForDiff(page, 240_000);
+        await settle(page);
+      },
+      action: async (page) => ({
+        ms: await page.evaluate(() =>
           window.__bench
-            .timed(async () => {
-              const pane = document.querySelector(
-                ".differ-pane[data-side='b'] .cm-scroller",
-              ) as HTMLElement;
-              const total = pane.scrollHeight - pane.clientHeight;
-              const steps = 60;
-              for (let i = 0; i <= steps; i++) {
-                pane.scrollTop = (total * i) / steps;
-                await new Promise<void>((r) => requestAnimationFrame(() => r()));
-              }
-            })
+            .timed(
+              () => {
+                window.__bench.cursorAt("b", "middle");
+                for (let n = 0; n < 30; n++) {
+                  document.execCommand("insertText", false, "x");
+                }
+              },
+              { waitForDiff: true },
+            )
             .then((r) => r.ms),
         ),
+      }),
+    });
+
+    // ---- scroll variations ----
+
+    // Scroll-fast: same 60 steps but no rAF between them — measures how
+    // CM copes with rapid scrollTop mutations. Reports FPS distribution.
+    scenarios.push({
+      name: `${fixture.name}/scroll-fast`,
+      prepare,
+      setup: async (page) => {
+        await seedFromRoute(page, id);
+        await waitForDiff(page, 240_000);
+        await settle(page);
+      },
+      action: async (page) =>
+        page.evaluate(async () => {
+          const r = await window.__bench.timedFps(async () => {
+            const pane = document.querySelector(
+              ".differ-pane[data-side='b'] .cm-scroller",
+            ) as HTMLElement;
+            const total = pane.scrollHeight - pane.clientHeight;
+            const steps = 60;
+            for (let i = 0; i <= steps; i++) {
+              pane.scrollTop = (total * i) / steps;
+            }
+            // Let the browser catch up.
+            await new Promise<void>((res) => requestAnimationFrame(() => res()));
+          });
+          return {
+            ms: r.ms,
+            fps: {
+              meanFrameMs: r.meanFrameMs,
+              p50FrameMs: r.p50FrameMs,
+              p99FrameMs: r.p99FrameMs,
+              droppedAt60Hz: r.droppedAt60Hz,
+              frames: r.frames,
+            },
+          };
+        }),
+    });
+
+    // Scroll-jump: single big jump from top to bottom in one shot. Tests
+    // the worst-case per-frame work when the viewport advances by a huge
+    // delta with no intermediate frames.
+    scenarios.push({
+      name: `${fixture.name}/scroll-jump`,
+      prepare,
+      setup: async (page) => {
+        await seedFromRoute(page, id);
+        await waitForDiff(page, 240_000);
+        await settle(page);
+      },
+      action: async (page) =>
+        page.evaluate(async () => {
+          const r = await window.__bench.timedFps(async () => {
+            const pane = document.querySelector(
+              ".differ-pane[data-side='b'] .cm-scroller",
+            ) as HTMLElement;
+            pane.scrollTop = pane.scrollHeight - pane.clientHeight;
+            // Two rAFs to settle: one for layout, one for paint.
+            await new Promise<void>((res) => requestAnimationFrame(() => res()));
+            await new Promise<void>((res) => requestAnimationFrame(() => res()));
+          });
+          return {
+            ms: r.ms,
+            fps: {
+              meanFrameMs: r.meanFrameMs,
+              p50FrameMs: r.p50FrameMs,
+              p99FrameMs: r.p99FrameMs,
+              droppedAt60Hz: r.droppedAt60Hz,
+              frames: r.frames,
+            },
+          };
+        }),
+    });
+
+    // ---- real paste via ClipboardEvent ----
+
+    // Dispatches a real `paste` event on side B's contenteditable carrying
+    // the fixture's b-side content. CM's clipboard handler takes that
+    // path for a real user paste; this is the closest simulation we can
+    // do without driving the OS clipboard.
+    scenarios.push({
+      name: `${fixture.name}/paste-event`,
+      prepare,
+      setup: async (page) => {
+        await page.evaluate(() => window.__bench.seed("", ""));
+        await settle(page);
+      },
+      action: async (page) => ({
+        ms: await page.evaluate(
+          async (fixId) => {
+            const a = await fetch(`/__bench/${fixId}?side=a`).then((r) => r.text());
+            const b = await fetch(`/__bench/${fixId}?side=b`).then((r) => r.text());
+            // Seed left side directly (no clipboard event semantics
+            // there — left is the "before" reference). Right side is
+            // what the user pastes.
+            window.__bench.seed(a, "");
+            return window.__bench
+              .timed(
+                () => {
+                  const cm = document.querySelector(
+                    ".differ-pane[data-side='b'] .cm-content",
+                  ) as HTMLElement;
+                  cm.focus();
+                  const dt = new DataTransfer();
+                  dt.setData("text/plain", b);
+                  cm.dispatchEvent(
+                    new ClipboardEvent("paste", {
+                      clipboardData: dt,
+                      bubbles: true,
+                      cancelable: true,
+                    }),
+                  );
+                },
+                { waitForDiff: true },
+              )
+              .then((r) => r.ms);
+          },
+          id,
+        ),
+      }),
+    });
+
+    // ---- layout scenarios ----
+
+    // Resize during scroll: resize the *editor pane* mid-scroll (we can't
+    // resize the actual viewport from inside page.evaluate without
+    // Playwright API; this still triggers CM's layout-measure path which
+    // is the realistic stress).
+    scenarios.push({
+      name: `${fixture.name}/resize-during-scroll`,
+      prepare,
+      setup: async (page) => {
+        await seedFromRoute(page, id);
+        await waitForDiff(page, 240_000);
+        await settle(page);
+      },
+      action: async (page) =>
+        page.evaluate(async () => {
+          const r = await window.__bench.timedFps(async () => {
+            const wrapper = document.querySelector(".differ-merge") as HTMLElement;
+            const pane = document.querySelector(
+              ".differ-pane[data-side='b'] .cm-scroller",
+            ) as HTMLElement;
+            const total = pane.scrollHeight - pane.clientHeight;
+            const steps = 60;
+            const originalWidth = wrapper.style.width;
+            for (let i = 0; i <= steps; i++) {
+              pane.scrollTop = (total * i) / steps;
+              if (i === 30) {
+                // Resize at the midpoint — narrows the wrapper, forcing
+                // CM to re-measure all visible lines.
+                wrapper.style.width = "60%";
+                window.dispatchEvent(new Event("resize"));
+              }
+              await new Promise<void>((res) => requestAnimationFrame(() => res()));
+            }
+            wrapper.style.width = originalWidth;
+            window.dispatchEvent(new Event("resize"));
+          });
+          return {
+            ms: r.ms,
+            fps: {
+              meanFrameMs: r.meanFrameMs,
+              p50FrameMs: r.p50FrameMs,
+              p99FrameMs: r.p99FrameMs,
+              droppedAt60Hz: r.droppedAt60Hz,
+              frames: r.frames,
+            },
+          };
+        }),
+    });
+
+    // Toggle history drawer during edit burst — checks that opening the
+    // drawer (which mounts a new DOM subtree + binds event handlers)
+    // doesn't tank keystroke latency.
+    scenarios.push({
+      name: `${fixture.name}/drawer-during-edit`,
+      prepare,
+      setup: async (page) => {
+        await seedFromRoute(page, id);
+        await waitForDiff(page, 240_000);
+        await settle(page);
+      },
+      action: async (page) => ({
+        ms: await page.evaluate(() =>
+          window.__bench
+            .timed(
+              async () => {
+                window.__bench.cursorAt("b", "middle");
+                for (let n = 0; n < 10; n++) {
+                  document.execCommand("insertText", false, "x");
+                  if (n === 5) window.__bench.toggleHistory();
+                  await new Promise<void>((res) =>
+                    requestAnimationFrame(() => res()),
+                  );
+                }
+                // Close the drawer at the end so the next scenario isn't
+                // affected (the bench creates a fresh page anyway, but
+                // tidiness).
+                window.__bench.toggleHistory();
+              },
+              { waitForDiff: true },
+            )
+            .then((r) => r.ms),
+        ),
+      }),
     });
   }
 
@@ -353,7 +655,13 @@ async function main(): Promise<void> {
     const browser = await chromium.launch({
       args: ["--js-flags=--max-old-space-size=8192", "--max-old-space-size=8192"],
     });
-    const summary: { name: string; ms: number | null; error?: string }[] = [];
+    interface SummaryRow {
+      name: string;
+      ms: number | null;
+      fps?: FpsStats;
+      error?: string;
+    }
+    const summary: SummaryRow[] = [];
 
     for (const scenario of scenarios) {
       if (!matches(scenario.name)) continue;
@@ -372,11 +680,19 @@ async function main(): Promise<void> {
         await scenario.setup(page);
         await settle(page);
 
-        const { inPageMs } = await captureTrace(page, client, scenario.name, () =>
+        const result = await captureTrace(page, client, scenario.name, () =>
           scenario.action(page),
         );
-        console.log(`  ${inPageMs.toFixed(1)} ms`);
-        summary.push({ name: scenario.name, ms: inPageMs });
+        if (result.fps) {
+          console.log(
+            `  ${result.ms.toFixed(1)} ms total, ${result.fps.frames} frames; ` +
+              `mean ${result.fps.meanFrameMs.toFixed(1)} ms / p50 ${result.fps.p50FrameMs.toFixed(1)} ms / ` +
+              `p99 ${result.fps.p99FrameMs.toFixed(1)} ms; dropped ${result.fps.droppedAt60Hz}/${result.fps.frames}`,
+          );
+        } else {
+          console.log(`  ${result.ms.toFixed(1)} ms`);
+        }
+        summary.push({ name: scenario.name, ms: result.ms, fps: result.fps });
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
         console.log(`  FAILED: ${msg.split("\n")[0]}`);
@@ -390,11 +706,16 @@ async function main(): Promise<void> {
 
     console.log("\nSummary (ms = action → next paint, in-page wall clock):");
     const nameW = Math.max(8, ...summary.map((s) => s.name.length));
-    console.log(`  ${"scenario".padEnd(nameW)}  ${"ms".padStart(10)}`);
-    console.log(`  ${"-".repeat(nameW)}  ${"-".repeat(10)}`);
+    console.log(
+      `  ${"scenario".padEnd(nameW)}  ${"ms".padStart(8)}  ${"frames".padStart(7)}  ${"mean".padStart(6)}  ${"p50".padStart(5)}  ${"p99".padStart(6)}  ${"dropped".padStart(8)}`,
+    );
+    console.log(`  ${"-".repeat(nameW)}  ${"-".repeat(8)}  ${"-".repeat(7)}  ${"-".repeat(6)}  ${"-".repeat(5)}  ${"-".repeat(6)}  ${"-".repeat(8)}`);
     for (const r of summary) {
       const ms = r.ms === null ? "FAILED" : r.ms.toFixed(1);
-      console.log(`  ${r.name.padEnd(nameW)}  ${ms.padStart(10)}${r.error ? "  " + r.error : ""}`);
+      const fpsCells = r.fps
+        ? `  ${String(r.fps.frames).padStart(7)}  ${r.fps.meanFrameMs.toFixed(1).padStart(6)}  ${r.fps.p50FrameMs.toFixed(1).padStart(5)}  ${r.fps.p99FrameMs.toFixed(1).padStart(6)}  ${`${r.fps.droppedAt60Hz}/${r.fps.frames}`.padStart(8)}`
+        : `  ${"-".padStart(7)}  ${"-".padStart(6)}  ${"-".padStart(5)}  ${"-".padStart(6)}  ${"-".padStart(8)}`;
+      console.log(`  ${r.name.padEnd(nameW)}  ${ms.padStart(8)}${fpsCells}${r.error ? "  " + r.error : ""}`);
     }
     console.log("\nTraces: bench/browser/traces/*.{trace.json,cpuprofile}");
   } catch (err) {
