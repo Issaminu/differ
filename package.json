@@ -14,6 +14,7 @@
     "bench:flame": "node bench/profile.ts",
     "bench:analyze": "node bench/analyze.ts",
     "bench:validate": "node bench/validate.ts",
+    "bench:browser": "node bench/browser/harness.ts",
     "bench:build-wasm": "wasm-pack build crates/diff-wasm --target nodejs --release --out-dir pkg-node && wasm-pack build crates/diff-wasm --target bundler --release --out-dir pkg-bundler"
   },
   "dependencies": {
@@ -38,6 +39,7 @@
     "@codemirror/merge": "^6.12.1",
     "@tauri-apps/cli": "^2.10.1",
     "@types/node": "^25.6.0",
+    "playwright": "^1.59.1",
     "tinybench": "^6.0.0",
     "typescript": "^6.0.3",
     "vite": "^8.0.10",
