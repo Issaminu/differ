@@ -43,7 +43,10 @@ interface Scenario {
 interface BenchHook {
   seed(a: string, b: string): void;
   stats(): { added: number; removed: number };
-  timed<T>(action: () => Promise<T> | T): Promise<{ ms: number; result: T }>;
+  timed<T>(
+    action: () => Promise<T> | T,
+    opts?: { waitForDiff?: boolean },
+  ): Promise<{ ms: number; result: T }>;
 }
 type WithBench = { __bench: BenchHook };
 
@@ -234,10 +237,11 @@ function buildScenarios(fixtures: RealFixture[]): Scenario[] {
     const prepare = (page: Page) => registerFixtureRoute(page, id, fixture.a, fixture.b);
 
     // 1. "Paste both panes": start clean, then fetch the fixture content
-    // from the route and seed both panes inside `timed()`. The fetch+seed
-    // sequence is what the timed measurement covers — the route is local
-    // (page.route intercepts before the network stack) so the cost is
-    // limited to JS string handling on the page side.
+    // from the route and seed both panes inside `timed()`. waitForDiff
+    // makes the measurement include the time the recompute takes to land
+    // (chunks dispatched), so async (Web Worker) implementations don't
+    // get a misleadingly fast number from rAFs that fire before the
+    // worker comes back.
     scenarios.push({
       name: `${fixture.name}/paste-both`,
       prepare,
@@ -249,13 +253,16 @@ function buildScenarios(fixtures: RealFixture[]): Scenario[] {
         page.evaluate(
           (fixId) =>
             window.__bench
-              .timed(async () => {
-                const [a, b] = await Promise.all([
-                  fetch(`/__bench/${fixId}?side=a`).then((r) => r.text()),
-                  fetch(`/__bench/${fixId}?side=b`).then((r) => r.text()),
-                ]);
-                window.__bench.seed(a, b);
-              })
+              .timed(
+                async () => {
+                  const [a, b] = await Promise.all([
+                    fetch(`/__bench/${fixId}?side=a`).then((r) => r.text()),
+                    fetch(`/__bench/${fixId}?side=b`).then((r) => r.text()),
+                  ]);
+                  window.__bench.seed(a, b);
+                },
+                { waitForDiff: true },
+              )
               .then((r) => r.ms),
           id,
         ),
@@ -263,6 +270,7 @@ function buildScenarios(fixtures: RealFixture[]): Scenario[] {
 
     // 2. "Keystroke on established diff": seed both panes during setup,
     // wait for paint, then time a single character insertion on side B.
+    // Same waitForDiff applies for honest async-vs-sync comparison.
     scenarios.push({
       name: `${fixture.name}/keystroke`,
       prepare,
@@ -274,13 +282,16 @@ function buildScenarios(fixtures: RealFixture[]): Scenario[] {
       action: async (page) =>
         page.evaluate(() =>
           window.__bench
-            .timed(() => {
-              const cm = document.querySelector(
-                ".differ-pane[data-side='b'] .cm-content",
-              ) as HTMLElement;
-              cm.focus();
-              document.execCommand("insertText", false, "X");
-            })
+            .timed(
+              () => {
+                const cm = document.querySelector(
+                  ".differ-pane[data-side='b'] .cm-content",
+                ) as HTMLElement;
+                cm.focus();
+                document.execCommand("insertText", false, "X");
+              },
+              { waitForDiff: true },
+            )
             .then((r) => r.ms),
         ),
     });

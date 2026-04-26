@@ -89,23 +89,43 @@ async function main(): Promise<void> {
   // numbers we care about.
   if (import.meta.env.VITE_BENCH === "1") {
     const { diffStats: stats } = await import("./state");
+    // Per-update counter on diffStats. Incremented every time syncDiffState
+    // writes a new value to the signal — gives `timed({ waitForDiff: true })`
+    // a way to detect "the diff has been applied" without polling for value
+    // changes (which can falsely match if the new diff happens to have the
+    // same added/removed counts as the previous one).
+    let statsRev = 0;
+    effect(() => {
+      // Touch the signal so the effect subscribes — bumps rev whenever
+      // syncDiffState writes, including no-op writes of equal values.
+      stats.value;
+      statsRev++;
+    });
     (window as unknown as { __bench?: unknown }).__bench = {
       seed(a: string, b: string) {
         originalText.value = a;
         modifiedText.value = b;
       },
-      // The current diff stats, freshly read from the signal. Used by the
-      // browser harness to wait until a seed has actually produced a diff
-      // before measuring downstream actions like keystrokes or scrolls.
       stats() {
         return { ...stats.value };
       },
       // Run an action and report the wall-clock ms from the start of the
-      // action to the next painted frame. The two-rAF wait ensures the
-      // browser has actually committed a paint, not just queued the work.
-      async timed<T>(action: () => Promise<T> | T): Promise<{ ms: number; result: T }> {
+      // action to the next painted frame. With `waitForDiff: true`, also
+      // wait until `diffStats` is updated — i.e. until the recompute has
+      // landed and chunks have been dispatched. Needed for honest
+      // measurement when computeDiff is async (Web Worker).
+      async timed<T>(
+        action: () => Promise<T> | T,
+        opts?: { waitForDiff?: boolean },
+      ): Promise<{ ms: number; result: T }> {
+        const startRev = statsRev;
         const t0 = performance.now();
         const result = await action();
+        if (opts?.waitForDiff) {
+          while (statsRev === startRev) {
+            await new Promise<void>((r) => setTimeout(r, 4));
+          }
+        }
         await new Promise<void>((r) => requestAnimationFrame(() => r()));
         await new Promise<void>((r) => requestAnimationFrame(() => r()));
         return { ms: performance.now() - t0, result };
