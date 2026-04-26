@@ -366,13 +366,38 @@ export function mountMergeView(host: HTMLElement): MergeController {
   // incremental updateA/updateB path on big docs and matches it on small
   // ones (see bench/baseline-results.txt). One code path, no chunk-set
   // surgery to maintain.
+  //
+  // We rely on `syncedOriginal` / `syncedModified` being kept in lockstep
+  // with the editor docs — they're updated in `setDocs`, in
+  // `handleDocChange` (per-keystroke), in `applyDocs(syncSignalsFromDocs)`
+  // (history restore), and used here directly. That avoids two
+  // full-document `toString()` allocations on every recompute, which at
+  // 70 MB per side is ~140 MB of churn we'd otherwise pay each call —
+  // the dominant garbage producer per the trace analysis.
   const recompute = () => {
     const left = ref.views.a;
     const right = ref.views.b;
     if (!left || !right) return;
-    const docA = left.state.doc;
-    const docB = right.state.doc;
-    syncDiffState(computeDiff(docA.toString(), docB.toString()), docA, docB);
+    syncDiffState(
+      computeDiff(syncedOriginal, syncedModified),
+      left.state.doc,
+      right.state.doc,
+    );
+  };
+
+  // Defer the diff to the next frame so the keystroke transaction can
+  // commit and paint without waiting for `computeDiff`. On a 70 MB doc
+  // that drops keystroke latency from ~1 s to one frame; the highlight
+  // catches up a frame later. Coalesces a burst of edits into a single
+  // recompute (only the latest one matters — full re-diff anyway).
+  let pendingRecompute = false;
+  const scheduleRecompute = () => {
+    if (pendingRecompute) return;
+    pendingRecompute = true;
+    requestAnimationFrame(() => {
+      pendingRecompute = false;
+      recompute();
+    });
   };
 
   const handleDocChange = (side: "a" | "b") => (u: ViewUpdate) => {
@@ -389,7 +414,7 @@ export function mountMergeView(host: HTMLElement): MergeController {
       syncedModified = text;
       if (modifiedText.peek() !== text) modifiedText.value = text;
     }
-    recompute();
+    scheduleRecompute();
   };
 
   const viewA = new EditorView({
