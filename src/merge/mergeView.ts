@@ -396,40 +396,36 @@ export function mountMergeView(host: HTMLElement): MergeController {
     equalize?.update();
   };
 
-  // computeDiff runs in a Web Worker (see src/merge/diff.worker.ts) so
-  // big-doc keystrokes commit + paint without waiting for the diff to
-  // land. Each recompute returns a Promise<DiffChunkSet>; we apply the
-  // result whenever it resolves. We rely on `syncedOriginal` /
-  // `syncedModified` matching what the editor docs hold — see setDocs,
-  // handleDocChange, applyDocs.
+  // Imara is fast enough that a full re-diff per change beats the old
+  // incremental updateA/updateB path on big docs and matches it on small
+  // ones (see bench/baseline-results.txt). One code path, no chunk-set
+  // surgery to maintain.
   //
-  // `recomputeSeq` is a monotonic counter: every scheduleRecompute bumps
-  // it, and a stale response (one that arrives after a newer recompute
-  // was issued) is dropped on arrival. This avoids the editor briefly
-  // flashing back to an older diff state during a burst of edits.
-  let recomputeSeq = 0;
-  const recompute = async () => {
+  // We rely on `syncedOriginal` / `syncedModified` being kept in lockstep
+  // with the editor docs — they're updated in `setDocs`, in
+  // `handleDocChange` (per-keystroke), in `applyDocs(syncSignalsFromDocs)`
+  // (history restore), and used here directly. That avoids two
+  // full-document `toString()` allocations on every recompute, which at
+  // 70 MB per side is ~140 MB of churn we'd otherwise pay each call —
+  // the dominant garbage producer per the trace analysis.
+  const recompute = () => {
     const left = ref.views.a;
     const right = ref.views.b;
     if (!left || !right) return;
-    const seq = ++recomputeSeq;
-    const a = syncedOriginal;
-    const b = syncedModified;
-    const chunks = await computeDiff(a, b);
-    if (seq !== recomputeSeq) return; // a newer recompute is already inflight
-    syncDiffState(chunks);
+    syncDiffState(computeDiff(syncedOriginal, syncedModified));
   };
 
-  // Defer-to-next-frame coalescing. Multiple keystrokes in the same frame
-  // share one recompute (which is itself async — fire it without waiting
-  // and let it land whenever it lands).
+  // Defer the diff to the next frame so the keystroke transaction can
+  // commit and paint without waiting for `computeDiff`. Coalesces a burst
+  // of edits into a single recompute (only the latest one matters — full
+  // re-diff anyway).
   let pendingRecompute = false;
   const scheduleRecompute = () => {
     if (pendingRecompute) return;
     pendingRecompute = true;
     requestAnimationFrame(() => {
       pendingRecompute = false;
-      void recompute();
+      recompute();
     });
   };
 

@@ -1,58 +1,41 @@
 // Diff source for the merge view. Wraps the imara-diff WASM (Histogram
-// algorithm) — see crates/diff-wasm/ for the Rust side — and runs it
-// inside a Web Worker so big-doc keystrokes commit + paint without
-// waiting for the diff to land. Chunks come back as transferred
-// Int32Arrays (zero-copy).
+// algorithm) — see crates/diff-wasm/ for the Rust side.
 //
-// Per-call protocol:
-//   1. setA / setB if the side's text has changed (reference-equality skip
-//      same as before — saves ~70 MB of postMessage clone on a typical
-//      keystroke that only touches one side)
-//   2. compute → worker computes and posts back chunks + changes buffers
+// Uses a stateful DiffSession + the packed-Int32Array output path so the
+// per-recompute work is two arena-style buffers (one for chunks, one for
+// changes), not ~100 k chunk objects materialised through serde-wasm-bindgen.
+// Combined with set_a/set_b reference-equality skipping, a per-keystroke
+// recompute on a 70 MB doc avoids two of the three big GC contributors that
+// the trace analysis surfaced.
 //
-// No backpressure / cancellation here: requests are processed in order in
-// the worker's message queue. mergeView already debounces recompute via
-// scheduleRecompute so we never have more than a small handful inflight.
+// Note: we tried moving this into a Web Worker (commit b96241c, since
+// reverted). Paste improved 15–18% but big-doc scroll regressed 45–80%
+// because the worker's allocation activity competed with main-thread
+// rendering. Bench numbers said it wasn't worth it; the keystroke
+// "responsiveness" theoretical win didn't show up because total work
+// time is unchanged. Sync stays.
 
+import {
+  DiffSession,
+} from "../../crates/diff-wasm/pkg-bundler/differ_diff_wasm.js";
 import { DiffChunkSet } from "./diffTypes";
 
-const worker = new Worker(new URL("./diff.worker.ts", import.meta.url), {
-  type: "module",
-});
-
-interface ComputeResponse {
-  id: number;
-  chunks: Int32Array;
-  changes: Int32Array;
-}
-
-let nextRequestId = 1;
-const pending = new Map<number, (response: ComputeResponse) => void>();
-
-worker.onmessage = (e: MessageEvent<ComputeResponse>) => {
-  const cb = pending.get(e.data.id);
-  if (cb) {
-    pending.delete(e.data.id);
-    cb(e.data);
-  }
-};
-
+const session = new DiffSession();
 let lastA: string | null = null;
 let lastB: string | null = null;
 
-export async function computeDiff(a: string, b: string): Promise<DiffChunkSet> {
+export function computeDiff(a: string, b: string): DiffChunkSet {
+  // Reference-equality check: when handleDocChange only updates side B,
+  // syncedOriginal still points at the same string instance, so we skip
+  // pushing it across the WASM boundary again.
   if (lastA !== a) {
-    worker.postMessage({ kind: "setA", text: a });
+    session.set_a(a);
     lastA = a;
   }
   if (lastB !== b) {
-    worker.postMessage({ kind: "setB", text: b });
+    session.set_b(b);
     lastB = b;
   }
-  const id = nextRequestId++;
-  const result = await new Promise<ComputeResponse>((resolve) => {
-    pending.set(id, resolve);
-    worker.postMessage({ kind: "compute", id, withChanges: true });
-  });
-  return new DiffChunkSet(result.chunks, result.changes, a, b);
+  session.compute_packed(true);
+  return new DiffChunkSet(session.chunks_buffer(), session.changes_buffer(), a, b);
 }

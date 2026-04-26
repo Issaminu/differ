@@ -10,14 +10,8 @@ export default defineConfig({
   // wasm-pack's --target bundler output uses `import * as wasm from
   // "./pkg/foo_bg.wasm"` and a top-level await in the init shim. The two
   // plugins below teach Vite/Rollup to consume that without per-import
-  // ceremony at the call site. The same plugins are reapplied to the
-  // worker bundle — Vite uses a separate plugin pipeline there, and our
-  // diff worker imports the same WASM.
+  // ceremony at the call site.
   plugins: [wasm(), topLevelAwait()],
-  worker: {
-    format: "es",
-    plugins: () => [wasm(), topLevelAwait()],
-  },
   clearScreen: false,
   define: {
     "import.meta.env.VITE_TARGET": JSON.stringify(target),
