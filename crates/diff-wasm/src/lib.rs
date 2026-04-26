@@ -86,10 +86,24 @@ pub fn diff_with_changes(a: &str, b: &str) -> Result<JsValue, JsValue> {
 // changed. On a per-keystroke recompute that saves one full-document
 // JS-string → WASM-memory copy (the unchanged side), which at 70 MB is one
 // of the dominant remaining GC contributors per the trace analysis.
+//
+// Also offers packed Int32Array output (`compute_packed` +
+// `chunks_buffer`/`changes_buffer`) so the JS side can read chunk data from
+// two flat typed arrays instead of materialising ~100 k chunk objects via
+// serde-wasm-bindgen on every diff. Layout:
+//
+//   chunks   : [fromA, endA, fromB, endB, changesStart, changesCount] × N
+//   changes  : [fromA, toA,  fromB, toB                              ] × M
+//
+// Both buffers are owned by the session; the returned Int32Arrays are
+// freshly allocated copies so the caller can hold them across subsequent
+// recomputes without worrying about wasm-memory aliasing.
 #[wasm_bindgen]
 pub struct DiffSession {
     a: String,
     b: String,
+    packed_chunks: Vec<i32>,
+    packed_changes: Vec<i32>,
 }
 
 #[wasm_bindgen]
@@ -99,6 +113,8 @@ impl DiffSession {
         Self {
             a: String::new(),
             b: String::new(),
+            packed_chunks: Vec::new(),
+            packed_changes: Vec::new(),
         }
     }
 
@@ -117,11 +133,112 @@ impl DiffSession {
     pub fn diff_with_changes(&self) -> Result<JsValue, JsValue> {
         diff_inner(&self.a, &self.b, true)
     }
+
+    // Compute the diff and stash the result in the session's packed buffers.
+    // Caller then pulls the buffers via chunks_buffer / changes_buffer.
+    pub fn compute_packed(&mut self, with_changes: bool) {
+        diff_into_packed(
+            &self.a,
+            &self.b,
+            with_changes,
+            &mut self.packed_chunks,
+            &mut self.packed_changes,
+        );
+    }
+
+    pub fn chunks_buffer(&self) -> js_sys::Int32Array {
+        let arr = js_sys::Int32Array::new_with_length(self.packed_chunks.len() as u32);
+        arr.copy_from(&self.packed_chunks);
+        arr
+    }
+
+    pub fn changes_buffer(&self) -> js_sys::Int32Array {
+        let arr = js_sys::Int32Array::new_with_length(self.packed_changes.len() as u32);
+        arr.copy_from(&self.packed_changes);
+        arr
+    }
 }
 
 impl Default for DiffSession {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+// Same algorithm as diff_inner, but emits results into two flat Vec<i32>
+// buffers instead of building a Vec<Chunk> + serializing through serde.
+// Called by DiffSession::compute_packed.
+fn diff_into_packed(
+    a: &str,
+    b: &str,
+    with_changes: bool,
+    chunks_out: &mut Vec<i32>,
+    changes_out: &mut Vec<i32>,
+) {
+    chunks_out.clear();
+    changes_out.clear();
+
+    let input = InternedInput::new(a, b);
+    let mut diff_state = Diff::compute(Algorithm::Histogram, &input);
+    diff_state.postprocess_lines(&input);
+
+    let a_offsets = line_offsets(a);
+    let b_offsets = line_offsets(b);
+    let a_bytes = a.as_bytes();
+    let b_bytes = b.as_bytes();
+
+    let mut inner_interner: Interner<u8> = Interner::new(0);
+
+    for hunk in diff_state.hunks() {
+        let a_start = clamp(hunk.before.start as usize, a_offsets.len() - 1);
+        let a_end = clamp(hunk.before.end as usize, a_offsets.len() - 1);
+        let b_start = clamp(hunk.after.start as usize, b_offsets.len() - 1);
+        let b_end = clamp(hunk.after.end as usize, b_offsets.len() - 1);
+
+        let from_a = a_offsets[a_start] as i32;
+        let end_a = a_offsets[a_end] as i32;
+        let from_b = b_offsets[b_start] as i32;
+        let end_b = b_offsets[b_end] as i32;
+
+        let changes_start = (changes_out.len() / 4) as i32;
+        let mut changes_count = 0i32;
+
+        if with_changes
+            && from_a < end_a
+            && from_b < end_b
+            && (end_a - from_a) <= INNER_DIFF_BYTE_LIMIT as i32
+            && (end_b - from_b) <= INNER_DIFF_BYTE_LIMIT as i32
+        {
+            let a_slice = &a_bytes[from_a as usize..end_a as usize];
+            let b_slice = &b_bytes[from_b as usize..end_b as usize];
+
+            inner_interner.clear();
+            let mut input: InternedInput<u8> = InternedInput {
+                before: Vec::with_capacity(a_slice.len()),
+                after: Vec::with_capacity(b_slice.len()),
+                interner: std::mem::take(&mut inner_interner),
+            };
+            input.update_before(a_slice.iter().copied());
+            input.update_after(b_slice.iter().copied());
+
+            let inner_diff = Diff::compute(Algorithm::Histogram, &input);
+            for inner_hunk in inner_diff.hunks() {
+                changes_out.push(inner_hunk.before.start as i32);
+                changes_out.push(inner_hunk.before.end as i32);
+                changes_out.push(inner_hunk.after.start as i32);
+                changes_out.push(inner_hunk.after.end as i32);
+                changes_count += 1;
+            }
+
+            inner_interner = input.interner;
+        }
+
+        chunks_out.push(from_a);
+        chunks_out.push(end_a);
+        chunks_out.push(from_b);
+        chunks_out.push(end_b);
+        chunks_out.push(changes_start);
+        chunks_out.push(changes_count);
     }
 }
 

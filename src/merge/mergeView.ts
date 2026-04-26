@@ -45,7 +45,7 @@ import {
   countChangedLines,
 } from "./diffDecorations";
 import { computeDiff } from "./diff";
-import type { DiffChunk } from "./diffTypes";
+import { DiffChunkSet } from "./diffTypes";
 
 // Theme + language compartments (one per pane). Compartments let us
 // reconfigure these without reconstructing the entire editor.
@@ -60,10 +60,11 @@ function themeExt(mode: "light" | "dark"): Extension {
 
 // Diff chunks produced by `computeDiff(a, b)` (imara-diff via WASM). Both
 // editors get the same chunk set on every doc change; each side translates
-// them to its own decorations through `decorationsExt(side)`.
-const setChunks = StateEffect.define<readonly DiffChunk[]>();
-const chunksField = StateField.define<readonly DiffChunk[]>({
-  create: () => [],
+// them to its own decorations through `decorationsExt(side)`. The set is
+// a packed-Int32Array view (DiffChunkSet) — see diffTypes.ts.
+const setChunks = StateEffect.define<DiffChunkSet>();
+const chunksField = StateField.define<DiffChunkSet>({
+  create: () => DiffChunkSet.empty(),
   update(chunks, tr) {
     for (const e of tr.effects) if (e.is(setChunks)) return e.value;
     return chunks;
@@ -340,7 +341,7 @@ export function mountMergeView(host: HTMLElement): MergeController {
   };
 
   const syncDiffState = (
-    chunks: readonly DiffChunk[],
+    chunks: DiffChunkSet,
     docA: Text,
     docB: Text,
   ) => {
@@ -353,9 +354,9 @@ export function mountMergeView(host: HTMLElement): MergeController {
 
     let added = 0;
     let removed = 0;
-    for (const chunk of chunks) {
-      removed += countChangedLines(docA, chunk.fromA, chunk.endA);
-      added += countChangedLines(docB, chunk.fromB, chunk.endB);
+    for (let i = 0; i < chunks.length; i++) {
+      removed += countChangedLines(docA, chunks.fromA(i), chunks.endA(i));
+      added += countChangedLines(docB, chunks.fromB(i), chunks.endB(i));
     }
     diffStats.value = { added, removed };
 
@@ -523,7 +524,7 @@ export function mountMergeView(host: HTMLElement): MergeController {
 
     const side: "a" | "b" = view === viewA ? "a" : "b";
     const startOf = (i: number) =>
-      side === "a" ? chunks[i].fromA : chunks[i].fromB;
+      side === "a" ? chunks.fromA(i) : chunks.fromB(i);
     const cursor = view.state.selection.main.head;
 
     let target: number | null = null;

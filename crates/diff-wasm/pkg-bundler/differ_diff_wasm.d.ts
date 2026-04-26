@@ -4,6 +4,9 @@
 export class DiffSession {
     free(): void;
     [Symbol.dispose](): void;
+    changes_buffer(): Int32Array;
+    chunks_buffer(): Int32Array;
+    compute_packed(with_changes: boolean): void;
     diff(): any;
     diff_with_changes(): any;
     constructor();

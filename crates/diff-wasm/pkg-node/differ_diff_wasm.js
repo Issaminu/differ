@@ -12,6 +12,26 @@ class DiffSession {
         wasm.__wbg_diffsession_free(ptr, 0);
     }
     /**
+     * @returns {Int32Array}
+     */
+    changes_buffer() {
+        const ret = wasm.diffsession_changes_buffer(this.__wbg_ptr);
+        return ret;
+    }
+    /**
+     * @returns {Int32Array}
+     */
+    chunks_buffer() {
+        const ret = wasm.diffsession_chunks_buffer(this.__wbg_ptr);
+        return ret;
+    }
+    /**
+     * @param {boolean} with_changes
+     */
+    compute_packed(with_changes) {
+        wasm.diffsession_compute_packed(this.__wbg_ptr, with_changes);
+    }
+    /**
      * @returns {any}
      */
     diff() {
@@ -98,6 +118,10 @@ function __wbg_get_imports() {
         __wbg___wbindgen_throw_6b64449b9b9ed33c: function(arg0, arg1) {
             throw new Error(getStringFromWasm0(arg0, arg1));
         },
+        __wbg_length_7da87610a31a2ef9: function(arg0) {
+            const ret = arg0.length;
+            return ret;
+        },
         __wbg_new_682678e2f47e32bc: function() {
             const ret = new Array();
             return ret;
@@ -106,11 +130,18 @@ function __wbg_get_imports() {
             const ret = new Object();
             return ret;
         },
+        __wbg_new_with_length_33f0a4c41f7ce2fc: function(arg0) {
+            const ret = new Int32Array(arg0 >>> 0);
+            return ret;
+        },
         __wbg_set_3bf1de9fab0cd644: function(arg0, arg1, arg2) {
             arg0[arg1 >>> 0] = arg2;
         },
         __wbg_set_6be42768c690e380: function(arg0, arg1, arg2) {
             arg0[arg1] = arg2;
+        },
+        __wbg_set_6c7215e0274bbbf2: function(arg0, arg1, arg2) {
+            arg0.set(getArrayI32FromWasm0(arg1, arg2));
         },
         __wbindgen_cast_0000000000000001: function(arg0) {
             // Cast intrinsic for `F64 -> Externref`.
@@ -141,6 +172,19 @@ function __wbg_get_imports() {
 const DiffSessionFinalization = (typeof FinalizationRegistry === 'undefined')
     ? { register: () => {}, unregister: () => {} }
     : new FinalizationRegistry(ptr => wasm.__wbg_diffsession_free(ptr >>> 0, 1));
+
+function getArrayI32FromWasm0(ptr, len) {
+    ptr = ptr >>> 0;
+    return getInt32ArrayMemory0().subarray(ptr / 4, ptr / 4 + len);
+}
+
+let cachedInt32ArrayMemory0 = null;
+function getInt32ArrayMemory0() {
+    if (cachedInt32ArrayMemory0 === null || cachedInt32ArrayMemory0.byteLength === 0) {
+        cachedInt32ArrayMemory0 = new Int32Array(wasm.memory.buffer);
+    }
+    return cachedInt32ArrayMemory0;
+}
 
 function getStringFromWasm0(ptr, len) {
     ptr = ptr >>> 0;

@@ -1,7 +1,7 @@
 import { RangeSet, type Text } from "@codemirror/state";
 import { Decoration, type DecorationSet, GutterMarker } from "@codemirror/view";
 
-import type { DiffChunk } from "./diffTypes";
+import type { DiffChunkSet } from "./diffTypes";
 
 export type Side = "a" | "b";
 
@@ -10,17 +10,21 @@ export type Side = "a" | "b";
 //   - characters that actually differ within those lines get .cm-changedText
 // Empty-on-this-side chunks render nothing — the line that exists is
 // highlighted on the peer's side (left = original, right = new).
+//
+// Reads directly from the packed Int32Array buffers in `chunks` (no
+// per-chunk JS objects) — that single change is the largest GC reducer in
+// the recompute path at scale.
 export function buildDecorations(
   side: Side,
-  chunks: readonly DiffChunk[],
+  chunks: DiffChunkSet,
   ourDoc: Text,
 ): DecorationSet {
   type Entry = { from: number; to: number; deco: Decoration };
   const entries: Entry[] = [];
 
-  for (const chunk of chunks) {
-    const fromOnSide = side === "a" ? chunk.fromA : chunk.fromB;
-    const toOnSide = side === "a" ? chunk.endA : chunk.endB;
+  for (let i = 0; i < chunks.length; i++) {
+    const fromOnSide = side === "a" ? chunks.fromA(i) : chunks.fromB(i);
+    const toOnSide = side === "a" ? chunks.endA(i) : chunks.endB(i);
     if (toOnSide <= fromOnSide) continue;
 
     let pos = fromOnSide;
@@ -36,11 +40,16 @@ export function buildDecorations(
       pos = line.to + 1;
     }
 
-    for (const change of chunk.changes) {
+    const changesStart = chunks.changesStart(i);
+    const changesCount = chunks.changesCount(i);
+    for (let j = 0; j < changesCount; j++) {
+      const idx = changesStart + j;
       const innerFrom =
-        (side === "a" ? change.fromA : change.fromB) + fromOnSide;
+        (side === "a" ? chunks.changeFromA(idx) : chunks.changeFromB(idx)) +
+        fromOnSide;
       const innerTo =
-        (side === "a" ? change.toA : change.toB) + fromOnSide;
+        (side === "a" ? chunks.changeToA(idx) : chunks.changeToB(idx)) +
+        fromOnSide;
       if (innerTo > innerFrom) {
         entries.push({
           from: innerFrom,
@@ -76,14 +85,14 @@ export const addedMarker = new ChangedGutterMarker(
 // changes while scrolling massive diffs.
 export function buildGutterRangeSet(
   side: Side,
-  chunks: readonly DiffChunk[],
+  chunks: DiffChunkSet,
   doc: Text,
 ): RangeSet<GutterMarker> {
   const marker = side === "a" ? removedMarker : addedMarker;
   const ranges: { from: number; marker: GutterMarker }[] = [];
-  for (const chunk of chunks) {
-    const fromOnSide = side === "a" ? chunk.fromA : chunk.fromB;
-    const toOnSide = side === "a" ? chunk.endA : chunk.endB;
+  for (let i = 0; i < chunks.length; i++) {
+    const fromOnSide = side === "a" ? chunks.fromA(i) : chunks.fromB(i);
+    const toOnSide = side === "a" ? chunks.endA(i) : chunks.endB(i);
     if (toOnSide <= fromOnSide) continue;
     let pos = fromOnSide;
     const max = Math.min(toOnSide, doc.length);
