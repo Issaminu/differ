@@ -47,7 +47,7 @@ export function mountPreferencesPanel(host: HTMLElement): PreferencesPanelContro
       </button>
       <div class="tb-prefs-modal" hidden>
         <div class="tb-prefs-backdrop" data-action="prefs-backdrop" aria-hidden="true"></div>
-        <div class="tb-prefs-panel" role="dialog" aria-modal="true" aria-labelledby="pref-dialog-title">
+        <div class="tb-prefs-panel" role="dialog" aria-modal="true" aria-labelledby="pref-dialog-title" tabindex="-1">
         <div class="pref-header">
           <div class="pref-title" id="pref-dialog-title">Preferences</div>
           <button type="button" class="tb-btn pref-close tb-icon-btn" data-action="close-preferences" aria-label="Close">${PREF_CLOSE_ICON}</button>
@@ -92,6 +92,7 @@ export function mountPreferencesPanel(host: HTMLElement): PreferencesPanelContro
 
   const trigger = host.querySelector<HTMLButtonElement>('[data-action="preferences"]')!;
   const modal = host.querySelector<HTMLDivElement>(".tb-prefs-modal")!;
+  const panel = host.querySelector<HTMLDivElement>(".tb-prefs-panel")!;
   const backdrop = host.querySelector<HTMLDivElement>('[data-action="prefs-backdrop"]')!;
   const closeBtn = host.querySelector<HTMLButtonElement>('[data-action="close-preferences"]')!;
   const tabButtons = Array.from(
@@ -157,8 +158,7 @@ export function mountPreferencesPanel(host: HTMLElement): PreferencesPanelContro
     document.documentElement.toggleAttribute("data-prefs-open", open);
     if (open) {
       requestAnimationFrame(() => {
-        const activeBtn = tabButtons.find((b) => b.dataset.tab === activeTab);
-        (activeBtn ?? tabButtons[0])?.focus();
+        panel.focus({ preventScroll: true });
       });
     } else if (wasOpen) {
       trigger.focus();

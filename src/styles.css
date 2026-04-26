@@ -398,6 +398,11 @@ body {
   -webkit-app-region: no-drag;
 }
 
+.tb-prefs-panel:focus,
+.tb-prefs-panel:focus-visible {
+  outline: none;
+}
+
 .pref-header {
   flex-shrink: 0;
   display: flex;
