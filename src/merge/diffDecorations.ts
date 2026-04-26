@@ -5,6 +5,16 @@ import type { DiffChunkSet } from "./diffTypes";
 
 export type Side = "a" | "b";
 
+// Hoist the line/char decoration objects to module scope. CM's RangeSet
+// diff calls each entry's value `eq` to decide whether a re-render is
+// needed; if every recompute creates *new* LineDecoration/MarkDecoration
+// instances (which `Decoration.line(...)` does), those compares can't
+// short-circuit on reference equality and CM walks every entry on every
+// scroll frame. Sharing one instance across all entries means `eq` is
+// O(1) per pair regardless of how many decorations the viewport has.
+const LINE_CHANGED_DECO = Decoration.line({ class: "cm-changedLine" });
+const CHAR_CHANGED_DECO = Decoration.mark({ class: "cm-changedText" });
+
 // Translate diff chunks → CM decorations.
 //   - changed lines on this side get .cm-changedLine (background tint)
 //   - characters that actually differ within those lines get .cm-changedText
@@ -15,27 +25,41 @@ export type Side = "a" | "b";
 // carries, instead of calling `doc.lineAt(pos)` per line. On a 70 MB
 // rename with ~100 k chunks that swap saves ~500 ms (the previous
 // `lineInner` hot spot in the trace).
+//
+// `rangeFrom` / `rangeTo` clip the emitted decorations to a viewport
+// window — when both are unset, the whole chunk set's worth of
+// decorations is emitted (the original behaviour). Used by the
+// viewport-aware ViewPlugin in mergeView to avoid materialising
+// 100 k+ entries when only ~100 lines are actually visible.
 export function buildDecorations(
   side: Side,
   chunks: DiffChunkSet,
+  rangeFrom = 0,
+  rangeTo = Number.MAX_SAFE_INTEGER,
 ): DecorationSet {
   type Entry = { from: number; to: number; deco: Decoration };
   const entries: Entry[] = [];
   const text = side === "a" ? chunks.aText : chunks.bText;
-  const lineDeco = Decoration.line({ class: "cm-changedLine" });
-  const charDeco = Decoration.mark({ class: "cm-changedText" });
 
   for (let i = 0; i < chunks.length; i++) {
     const fromOnSide = side === "a" ? chunks.fromA(i) : chunks.fromB(i);
     const toOnSide = side === "a" ? chunks.endA(i) : chunks.endB(i);
     if (toOnSide <= fromOnSide) continue;
+    // Skip chunks entirely outside the requested range. Chunks are emitted
+    // in document order, so we could break out of the loop once
+    // fromOnSide > rangeTo — but the constant per-iteration work is small
+    // enough that linear scanning every time keeps the code simpler.
+    if (toOnSide <= rangeFrom) continue;
+    if (fromOnSide >= rangeTo) continue;
 
+    const max = Math.min(toOnSide, text.length);
     // Each line in [fromOnSide, toOnSide) gets a .cm-changedLine decoration
     // at its start. We find line starts by scanning forward for "\n".
-    const max = Math.min(toOnSide, text.length);
     let lineFrom = fromOnSide;
     while (lineFrom <= max) {
-      entries.push({ from: lineFrom, to: lineFrom, deco: lineDeco });
+      if (lineFrom >= rangeFrom && lineFrom < rangeTo) {
+        entries.push({ from: lineFrom, to: lineFrom, deco: LINE_CHANGED_DECO });
+      }
       const nl = text.indexOf("\n", lineFrom);
       if (nl < 0 || nl >= max) break;
       lineFrom = nl + 1;
@@ -51,8 +75,8 @@ export function buildDecorations(
       const innerTo =
         (side === "a" ? chunks.changeToA(idx) : chunks.changeToB(idx)) +
         fromOnSide;
-      if (innerTo > innerFrom) {
-        entries.push({ from: innerFrom, to: innerTo, deco: charDeco });
+      if (innerTo > innerFrom && innerFrom < rangeTo && innerTo > rangeFrom) {
+        entries.push({ from: innerFrom, to: innerTo, deco: CHAR_CHANGED_DECO });
       }
     }
   }
@@ -79,10 +103,14 @@ export const addedMarker = new ChangedGutterMarker(
 );
 
 // Tint the gutter (line number) for each changed line so the user can spot
-// changes while scrolling massive diffs.
+// changes while scrolling massive diffs. Like `buildDecorations`, takes an
+// optional range clip — the viewport-aware ViewPlugin uses this to avoid
+// materialising 100 k+ gutter markers when only ~100 lines are visible.
 export function buildGutterRangeSet(
   side: Side,
   chunks: DiffChunkSet,
+  rangeFrom = 0,
+  rangeTo = Number.MAX_SAFE_INTEGER,
 ): RangeSet<GutterMarker> {
   const marker = side === "a" ? removedMarker : addedMarker;
   const ranges: { from: number; marker: GutterMarker }[] = [];
@@ -91,10 +119,14 @@ export function buildGutterRangeSet(
     const fromOnSide = side === "a" ? chunks.fromA(i) : chunks.fromB(i);
     const toOnSide = side === "a" ? chunks.endA(i) : chunks.endB(i);
     if (toOnSide <= fromOnSide) continue;
+    if (toOnSide <= rangeFrom) continue;
+    if (fromOnSide >= rangeTo) continue;
     const max = Math.min(toOnSide, text.length);
     let lineFrom = fromOnSide;
     while (lineFrom <= max) {
-      ranges.push({ from: lineFrom, marker });
+      if (lineFrom >= rangeFrom && lineFrom < rangeTo) {
+        ranges.push({ from: lineFrom, marker });
+      }
       const nl = text.indexOf("\n", lineFrom);
       if (nl < 0 || nl >= max) break;
       lineFrom = nl + 1;

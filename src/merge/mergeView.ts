@@ -7,7 +7,9 @@ import {
   type Extension,
 } from "@codemirror/state";
 import {
+  type DecorationSet,
   EditorView,
+  ViewPlugin,
   type ViewUpdate,
   drawSelection,
   gutterLineClass,
@@ -71,15 +73,48 @@ const chunksField = StateField.define<DiffChunkSet>({
   },
 });
 
-function decorationsExt(side: "a" | "b"): Extension {
-  // Only depends on chunksField — the chunk set carries the doc string it
-  // was diffed against, so we don't need state.doc here. Each new diff
-  // dispatches setChunks which triggers a recompute.
-  return EditorView.decorations.compute([chunksField], (state) =>
-    buildDecorations(side, state.field(chunksField)),
+// Viewport-scoped decoration overlay. Materialising line + char decorations
+// for *all* changed lines at once meant CM was running RangeSet.eq across
+// 100 k+ entries every frame — `eq` was the single biggest function in
+// the global aggregate (1.3 s across all bench scenarios). Building only
+// the visible window keeps the live decoration set under a few hundred
+// entries regardless of how big the diff is.
+//
+// Rebuild triggers: viewport change (scroll / resize), doc change, or a
+// new chunk set arriving.
+function decorationsOverlay(side: "a" | "b") {
+  return ViewPlugin.fromClass(
+    class {
+      decorations: DecorationSet;
+
+      constructor(view: EditorView) {
+        this.decorations = this.compute(view);
+      }
+
+      update(update: ViewUpdate): void {
+        const chunksChanged =
+          update.startState.field(chunksField) !==
+          update.state.field(chunksField);
+        if (update.viewportChanged || update.docChanged || chunksChanged) {
+          this.decorations = this.compute(update.view);
+        }
+      }
+
+      private compute(view: EditorView): DecorationSet {
+        const chunks = view.state.field(chunksField);
+        const { from, to } = view.viewport;
+        return buildDecorations(side, chunks, from, to);
+      }
+    },
+    { decorations: (v) => v.decorations },
   );
 }
 
+// Gutter line classes stay state-based. CM's facet machinery returns the
+// cached RangeSet when chunksField is reference-stable (every scroll
+// frame that doesn't change chunks), so `eq` short-circuits in O(1)
+// without per-frame work — the same trick can't easily be applied to
+// the decorations facet, which is why that one moved to ViewPlugin.
 function gutterLineClassExt(side: "a" | "b"): Extension {
   return gutterLineClass.compute([chunksField], (state) =>
     buildGutterRangeSet(side, state.field(chunksField)),
@@ -292,7 +327,7 @@ function baseExtensions(
     themeComp.of(themeExt(mode)),
     langComp.of([]),
     chunksField,
-    decorationsExt(side),
+    decorationsOverlay(side),
     gutterLineClassExt(side),
     EditorView.updateListener.of((u) => {
       if (!u.docChanged) return;
