@@ -1,4 +1,3 @@
-import { Chunk } from "@codemirror/merge";
 import {
   Compartment,
   EditorState,
@@ -45,6 +44,8 @@ import {
   buildGutterRangeSet,
   countChangedLines,
 } from "./diffDecorations";
+import { computeDiff } from "./diff";
+import type { DiffChunk } from "./diffTypes";
 
 // Theme + language compartments (one per pane). Compartments let us
 // reconfigure these without reconstructing the entire editor.
@@ -57,11 +58,11 @@ function themeExt(mode: "light" | "dark"): Extension {
   return mode === "dark" ? darkExtensions : lightExtensions;
 }
 
-// Diff chunks produced by `Chunk.build(docA, docB)`. Both editors get the
-// same chunk set on every doc change; each side translates them to its own
-// decorations through `decorationsExt(side)`.
-const setChunks = StateEffect.define<readonly Chunk[]>();
-const chunksField = StateField.define<readonly Chunk[]>({
+// Diff chunks produced by `computeDiff(a, b)` (imara-diff via WASM). Both
+// editors get the same chunk set on every doc change; each side translates
+// them to its own decorations through `decorationsExt(side)`.
+const setChunks = StateEffect.define<readonly DiffChunk[]>();
+const chunksField = StateField.define<readonly DiffChunk[]>({
   create: () => [],
   update(chunks, tr) {
     for (const e of tr.effects) if (e.is(setChunks)) return e.value;
@@ -327,7 +328,6 @@ export function mountMergeView(host: HTMLElement): MergeController {
   let equalize:
     | { update: () => void; dispose: () => void }
     | null = null;
-  let currentChunks: readonly Chunk[] = [];
   let bulkDocUpdateDepth = 0;
   let syncedOriginal = originalText.peek();
   let syncedModified = modifiedText.peek();
@@ -340,7 +340,7 @@ export function mountMergeView(host: HTMLElement): MergeController {
   };
 
   const syncDiffState = (
-    chunks: readonly Chunk[],
+    chunks: readonly DiffChunk[],
     docA: Text,
     docB: Text,
   ) => {
@@ -348,7 +348,6 @@ export function mountMergeView(host: HTMLElement): MergeController {
     const right = ref.views.b;
     if (!left || !right) return;
 
-    currentChunks = chunks;
     left.dispatch({ effects: setChunks.of(chunks) });
     right.dispatch({ effects: setChunks.of(chunks) });
 
@@ -363,15 +362,17 @@ export function mountMergeView(host: HTMLElement): MergeController {
     equalize?.update();
   };
 
+  // Imara is fast enough that a full re-diff per change beats the old
+  // incremental updateA/updateB path on big docs and matches it on small
+  // ones (see bench/baseline-results.txt). One code path, no chunk-set
+  // surgery to maintain.
   const recompute = () => {
     const left = ref.views.a;
     const right = ref.views.b;
     if (!left || !right) return;
-    syncDiffState(
-      Chunk.build(left.state.doc, right.state.doc),
-      left.state.doc,
-      right.state.doc,
-    );
+    const docA = left.state.doc;
+    const docB = right.state.doc;
+    syncDiffState(computeDiff(docA.toString(), docB.toString()), docA, docB);
   };
 
   const handleDocChange = (side: "a" | "b") => (u: ViewUpdate) => {
@@ -384,21 +385,11 @@ export function mountMergeView(host: HTMLElement): MergeController {
     if (side === "a") {
       syncedOriginal = text;
       if (originalText.peek() !== text) originalText.value = text;
-      syncDiffState(
-        Chunk.updateA(currentChunks, u.state.doc, right.state.doc, u.changes),
-        u.state.doc,
-        right.state.doc,
-      );
-      return;
+    } else {
+      syncedModified = text;
+      if (modifiedText.peek() !== text) modifiedText.value = text;
     }
-
-    syncedModified = text;
-    if (modifiedText.peek() !== text) modifiedText.value = text;
-    syncDiffState(
-      Chunk.updateB(currentChunks, left.state.doc, u.state.doc, u.changes),
-      left.state.doc,
-      u.state.doc,
-    );
+    recompute();
   };
 
   const viewA = new EditorView({

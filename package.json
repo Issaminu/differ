@@ -41,6 +41,8 @@
     "tinybench": "^6.0.0",
     "typescript": "^6.0.3",
     "vite": "^8.0.10",
+    "vite-plugin-top-level-await": "^1.6.0",
+    "vite-plugin-wasm": "^3.6.0",
     "wasm-pack": "^0.14.0"
   },
   "trustedDependencies": [

@@ -1,6 +1,7 @@
-import type { Chunk } from "@codemirror/merge";
 import { RangeSet, type Text } from "@codemirror/state";
 import { Decoration, type DecorationSet, GutterMarker } from "@codemirror/view";
+
+import type { DiffChunk } from "./diffTypes";
 
 export type Side = "a" | "b";
 
@@ -11,7 +12,7 @@ export type Side = "a" | "b";
 // highlighted on the peer's side (left = original, right = new).
 export function buildDecorations(
   side: Side,
-  chunks: readonly Chunk[],
+  chunks: readonly DiffChunk[],
   ourDoc: Text,
 ): DecorationSet {
   type Entry = { from: number; to: number; deco: Decoration };
@@ -75,7 +76,7 @@ export const addedMarker = new ChangedGutterMarker(
 // changes while scrolling massive diffs.
 export function buildGutterRangeSet(
   side: Side,
-  chunks: readonly Chunk[],
+  chunks: readonly DiffChunk[],
   doc: Text,
 ): RangeSet<GutterMarker> {
   const marker = side === "a" ? removedMarker : addedMarker;
