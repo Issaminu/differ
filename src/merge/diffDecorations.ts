@@ -1,4 +1,4 @@
-import { RangeSet, type Text } from "@codemirror/state";
+import { RangeSet } from "@codemirror/state";
 import { Decoration, type DecorationSet, GutterMarker } from "@codemirror/view";
 
 import type { DiffChunkSet } from "./diffTypes";
@@ -11,33 +11,34 @@ export type Side = "a" | "b";
 // Empty-on-this-side chunks render nothing — the line that exists is
 // highlighted on the peer's side (left = original, right = new).
 //
-// Reads directly from the packed Int32Array buffers in `chunks` (no
-// per-chunk JS objects) — that single change is the largest GC reducer in
-// the recompute path at scale.
+// We walk newlines directly through the cached doc string the chunk set
+// carries, instead of calling `doc.lineAt(pos)` per line. On a 70 MB
+// rename with ~100 k chunks that swap saves ~500 ms (the previous
+// `lineInner` hot spot in the trace).
 export function buildDecorations(
   side: Side,
   chunks: DiffChunkSet,
-  ourDoc: Text,
 ): DecorationSet {
   type Entry = { from: number; to: number; deco: Decoration };
   const entries: Entry[] = [];
+  const text = side === "a" ? chunks.aText : chunks.bText;
+  const lineDeco = Decoration.line({ class: "cm-changedLine" });
+  const charDeco = Decoration.mark({ class: "cm-changedText" });
 
   for (let i = 0; i < chunks.length; i++) {
     const fromOnSide = side === "a" ? chunks.fromA(i) : chunks.fromB(i);
     const toOnSide = side === "a" ? chunks.endA(i) : chunks.endB(i);
     if (toOnSide <= fromOnSide) continue;
 
-    let pos = fromOnSide;
-    const max = Math.min(toOnSide, ourDoc.length);
-    while (pos <= max) {
-      const line = ourDoc.lineAt(pos);
-      entries.push({
-        from: line.from,
-        to: line.from,
-        deco: Decoration.line({ class: "cm-changedLine" }),
-      });
-      if (line.to >= max) break;
-      pos = line.to + 1;
+    // Each line in [fromOnSide, toOnSide) gets a .cm-changedLine decoration
+    // at its start. We find line starts by scanning forward for "\n".
+    const max = Math.min(toOnSide, text.length);
+    let lineFrom = fromOnSide;
+    while (lineFrom <= max) {
+      entries.push({ from: lineFrom, to: lineFrom, deco: lineDeco });
+      const nl = text.indexOf("\n", lineFrom);
+      if (nl < 0 || nl >= max) break;
+      lineFrom = nl + 1;
     }
 
     const changesStart = chunks.changesStart(i);
@@ -51,11 +52,7 @@ export function buildDecorations(
         (side === "a" ? chunks.changeToA(idx) : chunks.changeToB(idx)) +
         fromOnSide;
       if (innerTo > innerFrom) {
-        entries.push({
-          from: innerFrom,
-          to: innerTo,
-          deco: Decoration.mark({ class: "cm-changedText" }),
-        });
+        entries.push({ from: innerFrom, to: innerTo, deco: charDeco });
       }
     }
   }
@@ -86,21 +83,21 @@ export const addedMarker = new ChangedGutterMarker(
 export function buildGutterRangeSet(
   side: Side,
   chunks: DiffChunkSet,
-  doc: Text,
 ): RangeSet<GutterMarker> {
   const marker = side === "a" ? removedMarker : addedMarker;
   const ranges: { from: number; marker: GutterMarker }[] = [];
+  const text = side === "a" ? chunks.aText : chunks.bText;
   for (let i = 0; i < chunks.length; i++) {
     const fromOnSide = side === "a" ? chunks.fromA(i) : chunks.fromB(i);
     const toOnSide = side === "a" ? chunks.endA(i) : chunks.endB(i);
     if (toOnSide <= fromOnSide) continue;
-    let pos = fromOnSide;
-    const max = Math.min(toOnSide, doc.length);
-    while (pos <= max) {
-      const line = doc.lineAt(pos);
-      ranges.push({ from: line.from, marker });
-      if (line.to >= max) break;
-      pos = line.to + 1;
+    const max = Math.min(toOnSide, text.length);
+    let lineFrom = fromOnSide;
+    while (lineFrom <= max) {
+      ranges.push({ from: lineFrom, marker });
+      const nl = text.indexOf("\n", lineFrom);
+      if (nl < 0 || nl >= max) break;
+      lineFrom = nl + 1;
     }
   }
   return RangeSet.of(
@@ -109,9 +106,22 @@ export function buildGutterRangeSet(
   );
 }
 
-export function countChangedLines(doc: Text, from: number, end: number): number {
-  if (end <= from || doc.length === 0) return 0;
-  const startLine = doc.lineAt(from).number;
-  const endLine = doc.lineAt(Math.min(end - 1, doc.length - 1)).number;
-  return endLine - startLine + 1;
+// Count newline-separated lines in `text` covered by `[from, end)`. A
+// non-empty range always covers at least one line (the line containing
+// `from`); each "\n" inside the range starts another. Used by
+// syncDiffState's stats counter — was previously `doc.lineAt` × 2 per
+// chunk per side.
+export function countChangedLines(text: string, from: number, end: number): number {
+  if (end <= from) return 0;
+  if (text.length === 0) return 0;
+  const stop = Math.min(end - 1, text.length);
+  let count = 1;
+  let pos = from;
+  while (pos < stop) {
+    const nl = text.indexOf("\n", pos);
+    if (nl < 0 || nl >= stop) break;
+    count++;
+    pos = nl + 1;
+  }
+  return count;
 }

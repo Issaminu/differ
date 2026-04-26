@@ -34,10 +34,12 @@ export class DiffChunkSet {
   constructor(
     private readonly chunks: Int32Array,
     private readonly changes: Int32Array,
+    public readonly aText: string,
+    public readonly bText: string,
   ) {}
 
   static empty(): DiffChunkSet {
-    return new DiffChunkSet(new Int32Array(0), new Int32Array(0));
+    return new DiffChunkSet(new Int32Array(0), new Int32Array(0), "", "");
   }
 
   get length(): number {

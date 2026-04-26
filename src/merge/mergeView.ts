@@ -72,15 +72,17 @@ const chunksField = StateField.define<DiffChunkSet>({
 });
 
 function decorationsExt(side: "a" | "b"): Extension {
-  return EditorView.decorations.compute(
-    [chunksField, "doc"],
-    (state) => buildDecorations(side, state.field(chunksField), state.doc),
+  // Only depends on chunksField — the chunk set carries the doc string it
+  // was diffed against, so we don't need state.doc here. Each new diff
+  // dispatches setChunks which triggers a recompute.
+  return EditorView.decorations.compute([chunksField], (state) =>
+    buildDecorations(side, state.field(chunksField)),
   );
 }
 
 function gutterLineClassExt(side: "a" | "b"): Extension {
-  return gutterLineClass.compute([chunksField, "doc"], (state) =>
-    buildGutterRangeSet(side, state.field(chunksField), state.doc),
+  return gutterLineClass.compute([chunksField], (state) =>
+    buildGutterRangeSet(side, state.field(chunksField)),
   );
 }
 
@@ -340,11 +342,7 @@ export function mountMergeView(host: HTMLElement): MergeController {
     if (modifiedText.peek() !== b) modifiedText.value = b;
   };
 
-  const syncDiffState = (
-    chunks: DiffChunkSet,
-    docA: Text,
-    docB: Text,
-  ) => {
+  const syncDiffState = (chunks: DiffChunkSet) => {
     const left = ref.views.a;
     const right = ref.views.b;
     if (!left || !right) return;
@@ -355,8 +353,8 @@ export function mountMergeView(host: HTMLElement): MergeController {
     let added = 0;
     let removed = 0;
     for (let i = 0; i < chunks.length; i++) {
-      removed += countChangedLines(docA, chunks.fromA(i), chunks.endA(i));
-      added += countChangedLines(docB, chunks.fromB(i), chunks.endB(i));
+      removed += countChangedLines(chunks.aText, chunks.fromA(i), chunks.endA(i));
+      added += countChangedLines(chunks.bText, chunks.fromB(i), chunks.endB(i));
     }
     diffStats.value = { added, removed };
 
@@ -379,11 +377,7 @@ export function mountMergeView(host: HTMLElement): MergeController {
     const left = ref.views.a;
     const right = ref.views.b;
     if (!left || !right) return;
-    syncDiffState(
-      computeDiff(syncedOriginal, syncedModified),
-      left.state.doc,
-      right.state.doc,
-    );
+    syncDiffState(computeDiff(syncedOriginal, syncedModified));
   };
 
   // Defer the diff to the next frame so the keystroke transaction can

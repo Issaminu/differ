@@ -93,8 +93,21 @@ const keywordSignals: Signal[] = [
   { pattern: /\bputs\s+/g, lang: "ruby", weight: 2 },
 ];
 
+// Above this size we don't even try to detect — the cost of running regex
+// scoring + JSON.parse outweighs the value, and in practice docs this big
+// are usually log files or data dumps where syntax highlighting wouldn't
+// help anyway. Users can still pick a language manually from the toolbar.
+const PLAINTEXT_THRESHOLD = 5 * 1024 * 1024;
+
+// Slice we run fastWins regex against. They're all anchored "starts with"
+// patterns (shebangs, doctype, xml decl, yaml front-matter), so a small
+// header is enough; previously we ran them against the whole document and
+// the YAML pattern alone burned 127 ms per keystroke on a 70 MB doc.
+const FAST_WIN_HEADER_BYTES = 4096;
+
 export function detectLanguage(text: string): LanguageId {
   if (!text || text.trim().length < 2) return "plaintext";
+  if (text.length > PLAINTEXT_THRESHOLD) return "plaintext";
 
   // JSON — try to parse a trimmed sample
   const trimmed = text.trim();
@@ -107,8 +120,10 @@ export function detectLanguage(text: string): LanguageId {
     }
   }
 
+  const header =
+    text.length > FAST_WIN_HEADER_BYTES ? text.slice(0, FAST_WIN_HEADER_BYTES) : text;
   for (const s of fastWins) {
-    if (s.pattern.test(text)) return s.lang;
+    if (s.pattern.test(header)) return s.lang;
   }
 
   const sample = text.length > 8000 ? text.slice(0, 8000) : text;

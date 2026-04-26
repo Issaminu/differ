@@ -27,5 +27,5 @@ export function computeDiff(a: string, b: string): DiffChunkSet {
     lastB = b;
   }
   session.compute_packed(true);
-  return new DiffChunkSet(session.chunks_buffer(), session.changes_buffer());
+  return new DiffChunkSet(session.chunks_buffer(), session.changes_buffer(), a, b);
 }
