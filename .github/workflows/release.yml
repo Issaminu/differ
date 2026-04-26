@@ -102,6 +102,29 @@ jobs:
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           command: pages deploy dist --project-name=differ --branch=main
 
+  tidy-assets:
+    # The .sig files are byproducts of bundle signing — their contents are
+    # embedded inline in latest.json, which is what the runtime updater
+    # actually reads. Removing them keeps the release page focused on the
+    # bundles users (and the updater) actually need.
+    name: Remove redundant .sig assets
+    needs: build-tauri
+    runs-on: ubuntu-latest
+    steps:
+      - name: Delete .sig assets
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          RELEASE_ID: ${{ github.event.release.id }}
+        run: |
+          set -euo pipefail
+          gh api "repos/$REPO/releases/$RELEASE_ID/assets" --paginate \
+            --jq '.[] | select(.name | endswith(".sig")) | .id' \
+            | while read -r id; do
+                echo "Deleting asset $id"
+                gh api -X DELETE "repos/$REPO/releases/assets/$id"
+              done
+
   link-web:
     name: Append web link to release notes
     needs: [build-tauri, web]
