@@ -25,9 +25,9 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - label: macOS .app
+          - label: macOS .app + .dmg
             os: macos-latest
-            bundles: app
+            bundles: app dmg
           - label: Windows NSIS
             os: windows-latest
             bundles: nsis
