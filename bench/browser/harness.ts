@@ -28,8 +28,10 @@ const matches = (name: string): boolean =>
 
 interface Scenario {
   name: string;
-  // Set up the editor before we start tracing — runs on a fresh page after
-  // the editor has mounted but before any CDP capture starts.
+  // Per-fixture route registration — runs on a fresh page so it can install
+  // page.route() before any in-page fetch happens.
+  prepare: (page: Page) => Promise<void>;
+  // Set up the editor before we start tracing.
   setup: (page: Page) => Promise<void>;
   // The action under test. Runs while CDP tracing is active. Returns the
   // wall-clock ms reported by `window.__bench.timed` (action → next paint).
@@ -115,11 +117,39 @@ async function settle(page: Page, ms = 200): Promise<void> {
   await page.waitForTimeout(ms);
 }
 
-// Seed both panes via the in-page bench hook. This bypasses Playwright's
-// slow `locator.fill` path so the wall-clock numbers reflect the editor's
-// own behaviour, not the test framework's.
-async function seed(page: Page, a: string, b: string): Promise<void> {
-  await page.evaluate(([aText, bText]) => window.__bench.seed(aText, bText), [a, b]);
+// Register a page-side route for the current fixture so the in-page code
+// can `fetch('/__bench/<id>?side=a')` to pull the doc text without us
+// having to serialize the whole string through the CDP control channel.
+// At 200 MB that round-trip becomes the dominant cost otherwise.
+async function registerFixtureRoute(
+  page: Page,
+  id: string,
+  a: string,
+  b: string,
+): Promise<void> {
+  await page.route(`**/__bench/${id}*`, async (route, req) => {
+    const url = new URL(req.url());
+    const side = url.searchParams.get("side");
+    const body = side === "a" ? a : side === "b" ? b : "";
+    await route.fulfill({
+      status: 200,
+      contentType: "text/plain; charset=utf-8",
+      body,
+    });
+  });
+}
+
+// Seed both panes via the in-page bench hook, fetching content from the
+// per-fixture route registered above. Returns once the seed call has run
+// (without waiting for paint — the caller usually wraps this in __bench.timed).
+async function seedFromRoute(page: Page, id: string): Promise<void> {
+  await page.evaluate(async (fixId) => {
+    const [a, b] = await Promise.all([
+      fetch(`/__bench/${fixId}?side=a`).then((r) => r.text()),
+      fetch(`/__bench/${fixId}?side=b`).then((r) => r.text()),
+    ]);
+    window.__bench.seed(a, b);
+  }, id);
 }
 
 // Wait until the diff signal has any non-zero added/removed count. More
@@ -192,70 +222,72 @@ async function captureTrace(
 function buildScenarios(fixtures: RealFixture[]): Scenario[] {
   const scenarios: Scenario[] = [];
 
-  for (const fixture of fixtures) {
-    // 1. "Paste both panes": start clean, seed both panes via the bench
-    // hook (one transaction per side), measure ms from seed → next paint
-    // with the diff fully rendered. This is what a user feels when they
-    // paste-paste-look.
+  for (let i = 0; i < fixtures.length; i++) {
+    const fixture = fixtures[i];
+    const id = `f${i}`;
+    const prepare = (page: Page) => registerFixtureRoute(page, id, fixture.a, fixture.b);
+
+    // 1. "Paste both panes": start clean, then fetch the fixture content
+    // from the route and seed both panes inside `timed()`. The fetch+seed
+    // sequence is what the timed measurement covers — the route is local
+    // (page.route intercepts before the network stack) so the cost is
+    // limited to JS string handling on the page side.
     scenarios.push({
       name: `${fixture.name}/paste-both`,
+      prepare,
       setup: async (page) => {
         await page.evaluate(() => window.__bench.seed("", ""));
         await settle(page);
       },
       action: async (page) =>
-        page
-          .evaluate(
-            ([a, b]) =>
-              window.__bench.timed(() => window.__bench.seed(a, b)).then((r) => r.ms),
-            [fixture.a, fixture.b],
-          ),
+        page.evaluate(
+          (fixId) =>
+            window.__bench
+              .timed(async () => {
+                const [a, b] = await Promise.all([
+                  fetch(`/__bench/${fixId}?side=a`).then((r) => r.text()),
+                  fetch(`/__bench/${fixId}?side=b`).then((r) => r.text()),
+                ]);
+                window.__bench.seed(a, b);
+              })
+              .then((r) => r.ms),
+          id,
+        ),
     });
 
     // 2. "Keystroke on established diff": seed both panes during setup,
-    // wait for paint, then time a single character insertion on side B at
-    // mid-document. Measures the per-keystroke recompute + repaint cost
-    // a user feels while editing inside an already-diffed pair.
+    // wait for paint, then time a single character insertion on side B.
     scenarios.push({
       name: `${fixture.name}/keystroke`,
+      prepare,
       setup: async (page) => {
-        await seed(page, fixture.a, fixture.b);
-        await waitForDiff(page);
+        await seedFromRoute(page, id);
+        await waitForDiff(page, 240_000);
         await settle(page);
       },
       action: async (page) =>
         page.evaluate(() =>
           window.__bench
             .timed(() => {
-              const view = (
-                document.querySelector(
-                  ".differ-pane[data-side='b'] .cm-content",
-                ) as HTMLElement
-              ).closest(".cm-editor")! as HTMLElement & { cmView?: unknown };
-              // Dispatch a real input event so CM's transaction machinery
-              // runs end-to-end, not via low-level state surgery. Inserting
-              // at the current selection (CM places it sensibly on focus).
               const cm = document.querySelector(
                 ".differ-pane[data-side='b'] .cm-content",
               ) as HTMLElement;
               cm.focus();
               document.execCommand("insertText", false, "X");
-              void view;
             })
             .then((r) => r.ms),
         ),
     });
 
     // 3. "Full programmatic scroll": seed, then scroll the right pane
-    // through its full extent and measure the total wall time. We use
-    // requestAnimationFrame between scroll steps so the browser actually
-    // paints each frame. The reported ms is wall time end-to-end; divide
-    // by frame count for per-frame.
+    // through its full extent, one rAF between each step. Reported ms is
+    // wall time end-to-end; divide by step count for per-frame.
     scenarios.push({
       name: `${fixture.name}/scroll`,
+      prepare,
       setup: async (page) => {
-        await seed(page, fixture.a, fixture.b);
-        await waitForDiff(page);
+        await seedFromRoute(page, id);
+        await waitForDiff(page, 240_000);
         await settle(page);
       },
       action: async (page) =>
@@ -298,7 +330,12 @@ async function main(): Promise<void> {
   const preview = await startPreview();
   let exitCode = 0;
   try {
-    const browser = await chromium.launch();
+    // Higher V8 limits so the 200 MB tier doesn't OOM mid-run. The defaults
+    // are conservative (~512 MB old gen) which would crash on a single-page
+    // diff this size.
+    const browser = await chromium.launch({
+      args: ["--js-flags=--max-old-space-size=8192", "--max-old-space-size=8192"],
+    });
     const summary: { name: string; ms: number | null; error?: string }[] = [];
 
     for (const scenario of scenarios) {
@@ -307,8 +344,12 @@ async function main(): Promise<void> {
 
       const context = await browser.newContext();
       const page = await context.newPage();
+      // Generous default — single actions on 200 MB inputs can legitimately
+      // take many seconds (mostly compute, some allocation).
+      page.setDefaultTimeout(240_000);
       const client = await context.newCDPSession(page);
       try {
+        await scenario.prepare(page);
         await page.goto(APP_URL);
         await waitForEditorReady(page);
         await scenario.setup(page);

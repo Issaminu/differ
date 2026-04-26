@@ -129,5 +129,56 @@ export async function loadRealFixtures(): Promise<RealFixture[]> {
     ),
   });
 
+  // 5–7. Tiled stress fixtures. We tile the 1.3 MB dom file to hit the
+  // sizes Differ would face when a power user pastes a real giant input
+  // — production SQL dumps, prod log files, full API response captures.
+  // 200 MB sits near V8's per-string ceiling so the largest tier doubles
+  // as a "does the tab survive" test as much as a perf test.
+  const target20 = 20 * 1024 * 1024;
+  const target70 = 70 * 1024 * 1024;
+  const target200 = 200 * 1024 * 1024;
+
+  for (const [label, size] of [
+    ["20mb", target20],
+    ["70mb", target70],
+    ["200mb", target200],
+  ] as const) {
+    const tiled = tile(dom54, size);
+    fixtures.push({
+      name: `stress-${label}/rename`,
+      description: `${label}: lib.dom tiled to ~${(tiled.length / 1024 / 1024).toFixed(1)} MB; rename 'Element' → 'Elem' across`,
+      a: tiled,
+      b: renameAll(tiled, "Element", "Elem"),
+    });
+    fixtures.push({
+      name: `stress-${label}/insert-block`,
+      description: `${label}: lib.dom tiled to ~${(tiled.length / 1024 / 1024).toFixed(1)} MB with a 60-line block spliced in`,
+      a: tiled,
+      b: spliceBlock(
+        tiled,
+        Array.from(
+          { length: 60 },
+          (_, i) => `interface __BenchAdded${i} { readonly id_${i}: number; }`,
+        ),
+      ),
+    });
+  }
+
   return fixtures;
+}
+
+// Concatenate `text` to itself enough times to land near `targetBytes`.
+// Inserts a unique marker between tiles so the tiled output isn't perfectly
+// periodic (otherwise diff algorithms have a much easier time than they
+// would on real content).
+function tile(text: string, targetBytes: number): string {
+  const chunks: string[] = [];
+  let total = 0;
+  let i = 0;
+  while (total < targetBytes) {
+    const sep = `\n\n// === bench tile ${i++} ===\n\n`;
+    chunks.push(sep, text);
+    total += sep.length + text.length;
+  }
+  return chunks.join("");
 }
