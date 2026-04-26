@@ -1,3 +1,59 @@
+export class DiffSession {
+    __destroy_into_raw() {
+        const ptr = this.__wbg_ptr;
+        this.__wbg_ptr = 0;
+        DiffSessionFinalization.unregister(this);
+        return ptr;
+    }
+    free() {
+        const ptr = this.__destroy_into_raw();
+        wasm.__wbg_diffsession_free(ptr, 0);
+    }
+    /**
+     * @returns {any}
+     */
+    diff() {
+        const ret = wasm.diffsession_diff(this.__wbg_ptr);
+        if (ret[2]) {
+            throw takeFromExternrefTable0(ret[1]);
+        }
+        return takeFromExternrefTable0(ret[0]);
+    }
+    /**
+     * @returns {any}
+     */
+    diff_with_changes() {
+        const ret = wasm.diffsession_diff_with_changes(this.__wbg_ptr);
+        if (ret[2]) {
+            throw takeFromExternrefTable0(ret[1]);
+        }
+        return takeFromExternrefTable0(ret[0]);
+    }
+    constructor() {
+        const ret = wasm.diffsession_new();
+        this.__wbg_ptr = ret >>> 0;
+        DiffSessionFinalization.register(this, this.__wbg_ptr, this);
+        return this;
+    }
+    /**
+     * @param {string} text
+     */
+    set_a(text) {
+        const ptr0 = passStringToWasm0(text, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len0 = WASM_VECTOR_LEN;
+        wasm.diffsession_set_a(this.__wbg_ptr, ptr0, len0);
+    }
+    /**
+     * @param {string} text
+     */
+    set_b(text) {
+        const ptr0 = passStringToWasm0(text, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len0 = WASM_VECTOR_LEN;
+        wasm.diffsession_set_b(this.__wbg_ptr, ptr0, len0);
+    }
+}
+if (Symbol.dispose) DiffSession.prototype[Symbol.dispose] = DiffSession.prototype.free;
+
 /**
  * @param {string} a
  * @param {string} b
@@ -67,6 +123,10 @@ export function __wbindgen_init_externref_table() {
     table.set(offset + 2, true);
     table.set(offset + 3, false);
 }
+const DiffSessionFinalization = (typeof FinalizationRegistry === 'undefined')
+    ? { register: () => {}, unregister: () => {} }
+    : new FinalizationRegistry(ptr => wasm.__wbg_diffsession_free(ptr >>> 0, 1));
+
 function getStringFromWasm0(ptr, len) {
     ptr = ptr >>> 0;
     return decodeText(ptr, len);

@@ -81,6 +81,50 @@ pub fn diff_with_changes(a: &str, b: &str) -> Result<JsValue, JsValue> {
     diff_inner(a, b, true)
 }
 
+// Stateful diff session — owns the current side A and side B contents on the
+// Rust side, so the JS caller only has to push the side that actually
+// changed. On a per-keystroke recompute that saves one full-document
+// JS-string → WASM-memory copy (the unchanged side), which at 70 MB is one
+// of the dominant remaining GC contributors per the trace analysis.
+#[wasm_bindgen]
+pub struct DiffSession {
+    a: String,
+    b: String,
+}
+
+#[wasm_bindgen]
+impl DiffSession {
+    #[wasm_bindgen(constructor)]
+    pub fn new() -> Self {
+        Self {
+            a: String::new(),
+            b: String::new(),
+        }
+    }
+
+    pub fn set_a(&mut self, text: String) {
+        self.a = text;
+    }
+
+    pub fn set_b(&mut self, text: String) {
+        self.b = text;
+    }
+
+    pub fn diff(&self) -> Result<JsValue, JsValue> {
+        diff_inner(&self.a, &self.b, false)
+    }
+
+    pub fn diff_with_changes(&self) -> Result<JsValue, JsValue> {
+        diff_inner(&self.a, &self.b, true)
+    }
+}
+
+impl Default for DiffSession {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 fn diff_inner(a: &str, b: &str, with_changes: bool) -> Result<JsValue, JsValue> {
     let input = InternedInput::new(a, b);
     let mut diff_state = Diff::compute(Algorithm::Histogram, &input);

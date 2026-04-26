@@ -68,6 +68,7 @@ async function startPreview(): Promise<ChildProcess> {
   console.log("Starting vite preview...");
   const proc = spawn("bun", ["x", "vite", "preview", "--port", String(PREVIEW_PORT)], {
     stdio: ["ignore", "pipe", "pipe"],
+    cwd: REPO_ROOT,
     env: { ...process.env, NO_COLOR: "1" },
   });
   // Wait for the "Local:" line.
@@ -84,6 +85,10 @@ async function startPreview(): Promise<ChildProcess> {
   return proc;
 }
 
+// Anchor child processes (vite build, vite preview) at the repo root so the
+// bench works regardless of where node was invoked from.
+const REPO_ROOT = path.resolve(import.meta.dirname, "..", "..");
+
 function runOnce(
   cmd: string,
   args: string[],
@@ -92,6 +97,7 @@ function runOnce(
   return new Promise((resolve, reject) => {
     const p = spawn(cmd, args, {
       stdio: "inherit",
+      cwd: REPO_ROOT,
       env: { ...process.env, ...env },
     });
     p.on("exit", (code) => (code === 0 ? resolve() : reject(new Error(`${cmd} exited ${code}`))));
