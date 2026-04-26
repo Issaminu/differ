@@ -2,17 +2,13 @@ import { Chunk } from "@codemirror/merge";
 import {
   Compartment,
   EditorState,
-  RangeSet,
   StateEffect,
   StateField,
   Text,
   type Extension,
 } from "@codemirror/state";
 import {
-  Decoration,
-  type DecorationSet,
   EditorView,
-  GutterMarker,
   type ViewUpdate,
   drawSelection,
   gutterLineClass,
@@ -44,6 +40,11 @@ import {
 import { lightExtensions } from "../theme/light";
 import { darkExtensions } from "../theme/dark";
 import { loadLanguage } from "./languages";
+import {
+  buildDecorations,
+  buildGutterRangeSet,
+  countChangedLines,
+} from "./diffDecorations";
 
 // Theme + language compartments (one per pane). Compartments let us
 // reconfigure these without reconstructing the entire editor.
@@ -68,61 +69,6 @@ const chunksField = StateField.define<readonly Chunk[]>({
   },
 });
 
-// Translate diff chunks → CM decorations.
-//   - changed lines on this side get .cm-changedLine (background tint)
-//   - characters that actually differ within those lines get .cm-changedText
-// Empty-on-this-side chunks render nothing — the line that exists is
-// highlighted on the peer's side (left = original, right = new).
-function buildDecorations(
-  side: "a" | "b",
-  chunks: readonly Chunk[],
-  ourDoc: Text,
-): DecorationSet {
-  type Entry = { from: number; to: number; deco: Decoration };
-  const entries: Entry[] = [];
-
-  for (const chunk of chunks) {
-    const fromOnSide = side === "a" ? chunk.fromA : chunk.fromB;
-    const toOnSide = side === "a" ? chunk.endA : chunk.endB;
-    if (toOnSide <= fromOnSide) continue;
-
-    // Mark each line that intersects [fromOnSide, toOnSide) as changed.
-    let pos = fromOnSide;
-    const max = Math.min(toOnSide, ourDoc.length);
-    while (pos <= max) {
-      const line = ourDoc.lineAt(pos);
-      entries.push({
-        from: line.from,
-        to: line.from,
-        deco: Decoration.line({ class: "cm-changedLine" }),
-      });
-      if (line.to >= max) break;
-      pos = line.to + 1;
-    }
-
-    // Inner character-level changes. `chunk.changes` positions are relative
-    // to the chunk start on each side.
-    for (const change of chunk.changes) {
-      const innerFrom =
-        (side === "a" ? change.fromA : change.fromB) + fromOnSide;
-      const innerTo =
-        (side === "a" ? change.toA : change.toB) + fromOnSide;
-      if (innerTo > innerFrom) {
-        entries.push({
-          from: innerFrom,
-          to: innerTo,
-          deco: Decoration.mark({ class: "cm-changedText" }),
-        });
-      }
-    }
-  }
-
-  return Decoration.set(
-    entries.map((e) => e.deco.range(e.from, e.to)),
-    true,
-  );
-}
-
 function decorationsExt(side: "a" | "b"): Extension {
   return EditorView.decorations.compute(
     [chunksField, "doc"],
@@ -130,47 +76,10 @@ function decorationsExt(side: "a" | "b"): Extension {
   );
 }
 
-class ChangedGutterMarker extends GutterMarker {
-  constructor(public override readonly elementClass: string) {
-    super();
-  }
-}
-
-const removedMarker = new ChangedGutterMarker("cm-changedLineGutter cm-removedLineGutter");
-const addedMarker = new ChangedGutterMarker("cm-changedLineGutter cm-addedLineGutter");
-
-// Tint the gutter (line number) for each changed line so the user can spot
-// changes while scrolling massive diffs.
 function gutterLineClassExt(side: "a" | "b"): Extension {
-  const marker = side === "a" ? removedMarker : addedMarker;
-  return gutterLineClass.compute([chunksField, "doc"], (state) => {
-    const chunks = state.field(chunksField);
-    const ranges: { from: number; marker: GutterMarker }[] = [];
-    for (const chunk of chunks) {
-      const fromOnSide = side === "a" ? chunk.fromA : chunk.fromB;
-      const toOnSide = side === "a" ? chunk.endA : chunk.endB;
-      if (toOnSide <= fromOnSide) continue;
-      let pos = fromOnSide;
-      const max = Math.min(toOnSide, state.doc.length);
-      while (pos <= max) {
-        const line = state.doc.lineAt(pos);
-        ranges.push({ from: line.from, marker });
-        if (line.to >= max) break;
-        pos = line.to + 1;
-      }
-    }
-    return RangeSet.of(
-      ranges.map((r) => r.marker.range(r.from)),
-      true,
-    );
-  });
-}
-
-function countChangedLines(doc: Text, from: number, end: number): number {
-  if (end <= from || doc.length === 0) return 0;
-  const startLine = doc.lineAt(from).number;
-  const endLine = doc.lineAt(Math.min(end - 1, doc.length - 1)).number;
-  return endLine - startLine + 1;
+  return gutterLineClass.compute([chunksField, "doc"], (state) =>
+    buildGutterRangeSet(side, state.field(chunksField), state.doc),
+  );
 }
 
 // When the sync lock is on, pad the shorter pane's `.cm-content` so both

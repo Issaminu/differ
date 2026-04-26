@@ -9,7 +9,10 @@
     "build:web": "VITE_TARGET=web tsc --noEmit && VITE_TARGET=web vite build",
     "preview": "vite preview",
     "tauri": "tauri",
-    "icons": "tauri icon src-tauri/icons/app-icon-1024.png && cp src-tauri/icons/128x128@2x.png public/app-icon.png"
+    "icons": "tauri icon src-tauri/icons/app-icon-1024.png && cp src-tauri/icons/128x128@2x.png public/app-icon.png",
+    "bench": "node bench/diff.bench.ts",
+    "bench:flame": "node bench/profile.ts",
+    "bench:analyze": "node bench/analyze.ts"
   },
   "dependencies": {
     "@codemirror/autocomplete": "^6.20.1",
@@ -33,6 +36,7 @@
   "devDependencies": {
     "@tauri-apps/cli": "^2.10.1",
     "@types/node": "^25.6.0",
+    "tinybench": "^6.0.0",
     "typescript": "^6.0.3",
     "vite": "^8.0.10"
   }

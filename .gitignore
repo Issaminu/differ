@@ -12,6 +12,9 @@ bun-debug.log*
 dist/
 .vite/
 
+## Bench profiler output
+bench/profiles/
+
 ## Tauri / Rust
 src-tauri/target/
 src-tauri/gen/

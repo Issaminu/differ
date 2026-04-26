@@ -1,0 +1,177 @@
+Building fixtures...
+  small/line-edits-10pct               1ms
+  small/char-edits-10pct               1ms
+  small/block-insert-20pct             0ms
+  small/disjoint                       0ms
+  medium/line-edits-5pct               1ms
+  medium/line-edits-50pct              1ms
+  medium/char-edits-10pct              1ms
+  medium/block-insert-10pct            1ms
+  medium/disjoint                      1ms
+  large/line-edits-5pct                4ms
+  large/char-edits-5pct                5ms
+
+=== Chunk.build (full diff) ===
+
+=== Chunk.build (full diff) ===
+  small/line-edits-10pct                    ...  small/line-edits-10pct                        4.77 ms  (p99 5.19, n=84, wall=502ms)
+  small/char-edits-10pct                    ...  small/char-edits-10pct                       0.957 ms  (p99 1.15, n=419, wall=502ms)
+  small/block-insert-20pct                  ...  small/block-insert-20pct                   8.57e-3 ms  (p99 0.022, n=46689, wall=521ms)
+  small/disjoint                            ...  small/disjoint                              456.61 ms  (p99 468.25, n=10, wall=5463ms)
+  medium/line-edits-5pct                    ...  medium/line-edits-5pct                      134.62 ms  (p99 135.99, n=5, wall=805ms)
+  medium/line-edits-50pct                   ...  medium/line-edits-50pct                   14058.25 ms  (p99 14207.45, n=5, wall=84469ms)
+  medium/char-edits-10pct                   ...  medium/char-edits-10pct                     108.87 ms  (p99 112.01, n=5, wall=653ms)
+  medium/block-insert-10pct                 ...  medium/block-insert-10pct                    0.084 ms  (p99 0.233, n=4759, wall=502ms)
+  large/line-edits-5pct                     ...  large/line-edits-5pct                      3081.57 ms  (p99 3090.64, n=3, wall=12318ms)
+  large/char-edits-5pct                     ...  large/char-edits-5pct                       524.91 ms  (p99 528.67, n=3, wall=2093ms)
+
+scenario                  | mean (ms)   | p50 (ms)   | p99 (ms)   | ops/s        | rme%     | n     
+--------------------------+-------------+------------+------------+--------------+----------+-------
+small/line-edits-10pct    | 4.77        | 4.74       | 5.19       | 209.77       | 0.685    | 84    
+small/char-edits-10pct    | 0.957       | 0.941      | 1.15       | 1049.89      | 0.647    | 419   
+small/block-insert-20pct  | 8.57e-3     | 8.04e-3    | 0.022      | 121947.83    | 0.499    | 46689 
+small/disjoint            | 456.61      | 455.81     | 468.25     | 2.19         | 1.32     | 10    
+medium/line-edits-5pct    | 134.62      | 134.66     | 135.99     | 7.43         | 1.13     | 5     
+medium/line-edits-50pct   | 14058.25    | 14035.00   | 14207.45   | 0.071        | 0.834    | 5     
+medium/char-edits-10pct   | 108.87      | 109.06     | 112.01     | 9.19         | 2.72     | 5     
+medium/block-insert-10pct | 0.084       | 0.079      | 0.233      | 12252.16     | 0.763    | 4759  
+large/line-edits-5pct     | 3081.57     | 3077.33    | 3090.64    | 0.325        | 0.653    | 3     
+large/char-edits-5pct     | 524.91      | 524.40     | 528.67     | 1.91         | 1.71     | 3     
+
+Pre-computing baseline chunks...
+  small/line-edits-10pct               diffing... 5ms (20 chunks)
+  small/char-edits-10pct               diffing... 1ms (18 chunks)
+  small/block-insert-20pct             diffing... 0ms (1 chunks)
+  small/disjoint                       diffing... 458ms (1 chunks)
+  medium/line-edits-5pct               diffing... 136ms (100 chunks)
+  medium/line-edits-50pct              diffing... 14074ms (1000 chunks)
+  medium/char-edits-10pct              diffing... 120ms (194 chunks)
+  medium/block-insert-10pct            diffing... 0ms (1 chunks)
+  medium/disjoint                      diffing... 46704ms (1 chunks)
+  large/line-edits-5pct                diffing... 3067ms (500 chunks)
+  large/char-edits-5pct                diffing... 538ms (472 chunks)
+
+=== Chunk.updateB (1-char edit on B) ===
+
+=== Chunk.updateB (1-char edit on B) ===
+  small/line-edits-10pct                    ...  small/line-edits-10pct                       0.219 ms  (p99 0.365, n=2742, wall=751ms)
+  small/char-edits-10pct                    ...  small/char-edits-10pct                       0.014 ms  (p99 0.021, n=43932, wall=764ms)
+  small/block-insert-20pct                  ...  small/block-insert-20pct                   1.66e-3 ms  (p99 2.08e-3, n=361084, wall=835ms)
+  medium/line-edits-5pct                    ...  medium/line-edits-5pct                       0.030 ms  (p99 0.043, n=19733, wall=756ms)
+  medium/line-edits-50pct                   ...  medium/line-edits-50pct                       5.58 ms  (p99 5.87, n=108, wall=757ms)
+  medium/char-edits-10pct                   ...  medium/char-edits-10pct                      0.052 ms  (p99 0.065, n=11623, wall=754ms)
+  medium/block-insert-10pct                 ...  medium/block-insert-10pct                  4.15e-3 ms  (p99 5.37e-3, n=144545, wall=791ms)
+  large/line-edits-5pct                     ...  large/line-edits-5pct                        0.027 ms  (p99 0.048, n=14729, wall=505ms)
+  large/char-edits-5pct                     ...  large/char-edits-5pct                        0.014 ms  (p99 0.018, n=28128, wall=508ms)
+
+scenario                  | mean (ms)   | p50 (ms)   | p99 (ms)   | ops/s        | rme%     | n     
+--------------------------+-------------+------------+------------+--------------+----------+-------
+small/line-edits-10pct    | 0.219       | 0.209      | 0.365      | 4646.91      | 0.591    | 2742  
+small/char-edits-10pct    | 0.014       | 0.013      | 0.021      | 74375.21     | 0.272    | 43932 
+small/block-insert-20pct  | 1.66e-3     | 1.63e-3    | 2.08e-3    | 612775.40    | 0.262    | 361084
+medium/line-edits-5pct    | 0.030       | 0.030      | 0.043      | 33164.65     | 0.218    | 19733 
+medium/line-edits-50pct   | 5.58        | 5.57       | 5.87       | 179.18       | 0.399    | 108   
+medium/char-edits-10pct   | 0.052       | 0.051      | 0.065      | 19483.29     | 0.223    | 11623 
+medium/block-insert-10pct | 4.15e-3     | 3.96e-3    | 5.37e-3    | 248248.17    | 0.392    | 144545
+large/line-edits-5pct     | 0.027       | 0.026      | 0.048      | 37582.26     | 0.507    | 14729 
+large/char-edits-5pct     | 0.014       | 0.014      | 0.018      | 71225.00     | 0.345    | 28128 
+
+=== buildDecorations (side b) ===
+
+=== buildDecorations (side b) ===
+  small/line-edits-10pct                    ...  small/line-edits-10pct                     2.86e-3 ms  (p99 3.67e-3, n=209987, wall=807ms)
+  small/char-edits-10pct                    ...  small/char-edits-10pct                     2.72e-3 ms  (p99 3.50e-3, n=220786, wall=805ms)
+  small/block-insert-20pct                  ...  small/block-insert-20pct                   3.26e-3 ms  (p99 4.13e-3, n=184262, wall=801ms)
+  small/disjoint                            ...  small/disjoint                               0.039 ms  (p99 0.063, n=15332, wall=760ms)
+  medium/line-edits-5pct                    ...  medium/line-edits-5pct                       0.021 ms  (p99 0.033, n=28839, wall=759ms)
+  medium/line-edits-50pct                   ...  medium/line-edits-50pct                      0.222 ms  (p99 0.388, n=2699, wall=752ms)
+  medium/char-edits-10pct                   ...  medium/char-edits-10pct                      0.050 ms  (p99 0.085, n=12042, wall=755ms)
+  medium/block-insert-10pct                 ...  medium/block-insert-10pct                    0.021 ms  (p99 0.029, n=28614, wall=760ms)
+  medium/disjoint                           ...  medium/disjoint                              0.519 ms  (p99 0.764, n=1157, wall=751ms)
+  large/line-edits-5pct                     ...  large/line-edits-5pct                        0.104 ms  (p99 0.174, n=3835, wall=502ms)
+  large/char-edits-5pct                     ...  large/char-edits-5pct                        0.116 ms  (p99 0.312, n=3435, wall=502ms)
+
+scenario                  | mean (ms)   | p50 (ms)   | p99 (ms)   | ops/s        | rme%     | n     
+--------------------------+-------------+------------+------------+--------------+----------+-------
+small/line-edits-10pct    | 2.86e-3     | 2.71e-3    | 3.67e-3    | 360866.90    | 0.327    | 209987
+small/char-edits-10pct    | 2.72e-3     | 2.58e-3    | 3.50e-3    | 378723.19    | 0.334    | 220786
+small/block-insert-20pct  | 3.26e-3     | 3.12e-3    | 4.13e-3    | 314280.42    | 0.311    | 184262
+small/disjoint            | 0.039       | 0.038      | 0.063      | 26048.61     | 0.676    | 15332 
+medium/line-edits-5pct    | 0.021       | 0.020      | 0.033      | 48788.65     | 0.307    | 28839 
+medium/line-edits-50pct   | 0.222       | 0.215      | 0.388      | 4538.49      | 0.461    | 2699  
+medium/char-edits-10pct   | 0.050       | 0.048      | 0.085      | 20564.70     | 0.570    | 12042 
+medium/block-insert-10pct | 0.021       | 0.020      | 0.029      | 48386.25     | 0.321    | 28614 
+medium/disjoint           | 0.519       | 0.502      | 0.764      | 1945.45      | 0.650    | 1157  
+large/line-edits-5pct     | 0.104       | 0.100      | 0.174      | 9772.41      | 0.705    | 3835  
+large/char-edits-5pct     | 0.116       | 0.110      | 0.312      | 8830.57      | 0.964    | 3435  
+
+=== buildGutterRangeSet (side b) ===
+
+=== buildGutterRangeSet (side b) ===
+  small/line-edits-10pct                    ...  small/line-edits-10pct                     9.27e-4 ms  (p99 1.67e-3, n=646924, wall=910ms)
+  small/char-edits-10pct                    ...  small/char-edits-10pct                     8.26e-4 ms  (p99 1.21e-3, n=726737, wall=930ms)
+  small/block-insert-20pct                  ...  small/block-insert-20pct                   1.75e-3 ms  (p99 2.88e-3, n=342432, wall=846ms)
+  small/disjoint                            ...  small/disjoint                             9.07e-3 ms  (p99 0.027, n=66168, wall=772ms)
+  medium/line-edits-5pct                    ...  medium/line-edits-5pct                     8.96e-3 ms  (p99 0.016, n=66947, wall=771ms)
+  medium/line-edits-50pct                   ...  medium/line-edits-50pct                      0.093 ms  (p99 0.154, n=6439, wall=753ms)
+  medium/char-edits-10pct                   ...  medium/char-edits-10pct                      0.018 ms  (p99 0.039, n=34016, wall=761ms)
+  medium/block-insert-10pct                 ...  medium/block-insert-10pct                    0.014 ms  (p99 0.022, n=44202, wall=763ms)
+  medium/disjoint                           ...  medium/disjoint                              0.182 ms  (p99 0.250, n=3304, wall=752ms)
+  large/line-edits-5pct                     ...  large/line-edits-5pct                        0.042 ms  (p99 0.087, n=9449, wall=504ms)
+  large/char-edits-5pct                     ...  large/char-edits-5pct                        0.038 ms  (p99 0.055, n=10449, wall=504ms)
+
+scenario                  | mean (ms)   | p50 (ms)   | p99 (ms)   | ops/s        | rme%     | n     
+--------------------------+-------------+------------+------------+--------------+----------+-------
+small/line-edits-10pct    | 9.27e-4     | 8.75e-4    | 1.67e-3    | 1138677.87   | 1.07     | 646924
+small/char-edits-10pct    | 8.26e-4     | 7.91e-4    | 1.21e-3    | 1256947.02   | 0.463    | 726737
+small/block-insert-20pct  | 1.75e-3     | 1.58e-3    | 2.88e-3    | 613912.54    | 0.743    | 342432
+small/disjoint            | 9.07e-3     | 8.12e-3    | 0.027      | 118913.06    | 1.12     | 66168 
+medium/line-edits-5pct    | 8.96e-3     | 8.50e-3    | 0.016      | 114526.18    | 0.310    | 66947 
+medium/line-edits-50pct   | 0.093       | 0.089      | 0.154      | 10869.44     | 0.386    | 6439  
+medium/char-edits-10pct   | 0.018       | 0.017      | 0.039      | 58371.66     | 0.364    | 34016 
+medium/block-insert-10pct | 0.014       | 0.013      | 0.022      | 74903.58     | 0.294    | 44202 
+medium/disjoint           | 0.182       | 0.177      | 0.250      | 5542.19      | 0.346    | 3304  
+large/line-edits-5pct     | 0.042       | 0.040      | 0.087      | 24431.87     | 0.968    | 9449  
+large/char-edits-5pct     | 0.038       | 0.037      | 0.055      | 26449.66     | 0.385    | 10449 
+
+=== per-keystroke combined ===
+
+=== per-keystroke combined ===
+  small/line-edits-10pct                    ...  small/line-edits-10pct                       0.218 ms  (p99 0.301, n=2751, wall=751ms)
+  small/char-edits-10pct                    ...  small/char-edits-10pct                       0.022 ms  (p99 0.034, n=27510, wall=759ms)
+  small/block-insert-20pct                  ...  small/block-insert-20pct                   6.93e-3 ms  (p99 0.011, n=86565, wall=774ms)
+  medium/line-edits-5pct                    ...  medium/line-edits-5pct                       0.100 ms  (p99 0.145, n=5997, wall=753ms)
+  medium/line-edits-50pct                   ...  medium/line-edits-50pct                       6.55 ms  (p99 7.10, n=92, wall=754ms)
+  medium/char-edits-10pct                   ...  medium/char-edits-10pct                      0.188 ms  (p99 0.324, n=3197, wall=752ms)
+  medium/block-insert-10pct                 ...  medium/block-insert-10pct                    0.041 ms  (p99 0.092, n=14624, wall=756ms)
+  large/line-edits-5pct                     ...  large/line-edits-5pct                        0.350 ms  (p99 0.660, n=1144, wall=501ms)
+  large/char-edits-5pct                     ...  large/char-edits-5pct                        0.331 ms  (p99 0.558, n=1208, wall=501ms)
+
+scenario                  | mean (ms)   | p50 (ms)   | p99 (ms)   | ops/s        | rme%     | n     
+--------------------------+-------------+------------+------------+--------------+----------+-------
+small/line-edits-10pct    | 0.218       | 0.214      | 0.301      | 4616.09      | 0.353    | 2751  
+small/char-edits-10pct    | 0.022       | 0.021      | 0.034      | 46661.17     | 0.334    | 27510 
+small/block-insert-20pct  | 6.93e-3     | 6.63e-3    | 0.011      | 147564.46    | 0.336    | 86565 
+medium/line-edits-5pct    | 0.100       | 0.097      | 0.145      | 10092.38     | 0.340    | 5997  
+medium/line-edits-50pct   | 6.55        | 6.53       | 7.10       | 152.90       | 0.872    | 92    
+medium/char-edits-10pct   | 0.188       | 0.180      | 0.324      | 5388.10      | 0.482    | 3197  
+medium/block-insert-10pct | 0.041       | 0.038      | 0.092      | 25115.67     | 0.565    | 14624 
+large/line-edits-5pct     | 0.350       | 0.322      | 0.660      | 2945.30      | 1.42     | 1144  
+large/char-edits-5pct     | 0.331       | 0.313      | 0.558      | 3069.04      | 0.882    | 1208  
+
+=== detectLanguage ===
+
+=== detectLanguage ===
+  small/sample                              ...  small/sample                                 0.174 ms  (p99 0.284, n=3447, wall=752ms)
+  medium/sample                             ...  medium/sample                                0.273 ms  (p99 0.435, n=2200, wall=751ms)
+  large/sample                              ...  large/sample                                 0.859 ms  (p99 1.16, n=466, wall=501ms)
+
+scenario      | mean (ms)   | p50 (ms)   | p99 (ms)   | ops/s        | rme%     | n     
+--------------+-------------+------------+------------+--------------+----------+-------
+small/sample  | 0.174       | 0.167      | 0.284      | 5813.71      | 0.447    | 3447  
+medium/sample | 0.273       | 0.258      | 0.435      | 3721.43      | 0.612    | 2200  
+large/sample  | 0.859       | 0.829      | 1.16       | 1178.05      | 1.13     | 466   
+
+Done.
+
+Done.
