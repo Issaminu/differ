@@ -85,11 +85,11 @@ export function mountPreferencesPanel(host: HTMLElement): PreferencesPanelContro
               </div>
               <p class="pref-about-copy">A native two-pane diff shell built for fast editing, shared history navigation, and lightweight snapshot recall.</p>
               <div class="pref-about-update" data-desktop-only hidden>
-                <button class="tb-btn pref-about-update-btn" type="button" data-action="check-update">Check for Updates</button>
                 <div class="pref-about-update-status">
                   <span class="pref-about-update-state"></span>
                   <span class="pref-about-update-meta"></span>
                 </div>
+                <button class="tb-btn pref-about-update-btn" type="button" data-action="check-update">Check for Updates</button>
               </div>
               <div class="pref-about-links">
                 <a class="pref-about-link" href="${ABOUT_X_PROFILE_URL}" target="_blank" rel="noopener noreferrer" aria-label="Open profile on X in your browser">
