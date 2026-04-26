@@ -615,7 +615,7 @@ dependencies = [
 
 [[package]]
 name = "differ"
-version = "0.1.3"
+version = "0.1.2"
 dependencies = [
  "anyhow",
  "chrono",
