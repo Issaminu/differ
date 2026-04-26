@@ -1,4 +1,5 @@
 import { signal } from "@preact/signals-core";
+import { relaunch } from "@tauri-apps/plugin-process";
 import { check } from "@tauri-apps/plugin-updater";
 
 const HOUR_MS = 60 * 60 * 1000;
@@ -82,6 +83,13 @@ export function triggerUpdateCheck(): Promise<void> {
     }
   })();
   return inFlight;
+}
+
+export async function relaunchToUpdate(): Promise<void> {
+  if (import.meta.env.VITE_TARGET === "web") return;
+  // Only meaningful once a bundle has been staged on disk.
+  if (updateStatus.peek() !== "ready") return;
+  await relaunch();
 }
 
 let timerStarted = false;

@@ -1,5 +1,8 @@
 name: CI
 
+# Verification-only CI: typecheck + build the web bundle on every push and PR.
+# Production web deploys happen exclusively on release creation (release.yml),
+# so this workflow never touches Cloudflare.
 on:
   push:
     branches: [main]
@@ -9,19 +12,12 @@ concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
 
-env:
-  # Force Node 24 for JS actions that still ship Node 20
-  # (currently cloudflare/wrangler-action@v3). Drop once upstream updates.
-  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
-
 jobs:
   web:
-    name: Build & deploy web
+    name: Web typecheck & build
     runs-on: ubuntu-latest
     permissions:
       contents: read
-      deployments: write
-      pull-requests: write
     steps:
       - uses: actions/checkout@v6
 
@@ -34,13 +30,3 @@ jobs:
 
       - name: Type-check & build (web)
         run: bun run build:web
-
-      - name: Deploy to Cloudflare Pages
-        uses: cloudflare/wrangler-action@v3
-        with:
-          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          command: >-
-            pages deploy dist
-            --project-name=differ
-            --branch=${{ github.event_name == 'pull_request' && github.head_ref || github.ref_name }}

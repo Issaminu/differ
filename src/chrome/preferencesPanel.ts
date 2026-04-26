@@ -18,6 +18,7 @@ import {
   humanRelativeSince,
   lastCheckedAt,
   relativeTimeTick,
+  relaunchToUpdate,
   triggerUpdateCheck,
   updateAvailableVersion,
   updateStatus,
@@ -461,6 +462,10 @@ function wireUpdateRow(host: HTMLElement): void {
   row.hidden = false;
 
   button.addEventListener("click", () => {
+    if (updateStatus.peek() === "ready") {
+      void relaunchToUpdate();
+      return;
+    }
     void triggerUpdateCheck();
   });
 
@@ -468,13 +473,14 @@ function wireUpdateRow(host: HTMLElement): void {
     const status = updateStatus.value;
     const version = updateAvailableVersion.value;
     const busy = status === "checking" || status === "downloading";
-    button.disabled = busy || status === "ready";
+    button.disabled = busy;
     button.textContent =
       status === "ready"
         ? "Restart to update"
         : busy
           ? "Checking…"
           : "Check for Updates";
+    button.classList.toggle("primary", status === "ready");
     stateEl.textContent = updateStatusLabel(status, version);
     row.dataset.status = status;
   });

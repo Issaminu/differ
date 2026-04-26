@@ -1,17 +1,16 @@
 name: Release
 
-# Triggered when you create a release in the GitHub UI (draft or non-draft).
-# The matrix builds the desktop bundles and uploads them to that release;
-# the final job appends a "Try it on the web" link to the release body.
-#
-# Production web deploys happen separately on every push to main (ci.yml),
-# so we don't redeploy here — we just link.
+# Triggered when a release is created in the GitHub UI (draft or non-draft).
+# This workflow is the *only* path that touches production: it builds and
+# uploads desktop bundles, deploys the web build to Cloudflare Pages, and
+# finally appends a "Try it on the web" link to the release body.
 on:
   release:
     types: [created]
 
 permissions:
   contents: write
+  deployments: write
 
 env:
   # Force Node 24 for JS actions that still ship Node 20
@@ -78,9 +77,34 @@ jobs:
           releaseId: ${{ github.event.release.id }}
           args: --bundles ${{ matrix.bundles }}
 
+  web:
+    name: Build & deploy web
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ github.event.release.tag_name }}
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Type-check & build (web)
+        run: bun run build:web
+
+      - name: Deploy to Cloudflare Pages
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          command: pages deploy dist --project-name=differ --branch=main
+
   link-web:
     name: Append web link to release notes
-    needs: build-tauri
+    needs: [build-tauri, web]
     runs-on: ubuntu-latest
     steps:
       - name: Append web link
