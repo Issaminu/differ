@@ -1,6 +1,6 @@
 [package]
 name = "differ"
-version = "0.1.2"
+version = "0.1.3"
 description = "Minimal native diffing app"
 authors = ["Issam Boubcher"]
 edition = "2021"
