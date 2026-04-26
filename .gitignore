@@ -26,3 +26,4 @@ src-tauri/resources/macos/assetcatalog_generated_info.plist
 !.vscode/extensions.json
 !.vscode/settings.json
 .claude/settings.local.json
+.env.*
