@@ -13,6 +13,7 @@
     "bench": "node bench/diff.bench.ts",
     "bench:flame": "node bench/profile.ts",
     "bench:analyze": "node bench/analyze.ts",
+    "bench:analyze-trace": "node bench/analyzeTrace.ts",
     "bench:validate": "node bench/validate.ts",
     "bench:browser": "node bench/browser/harness.ts",
     "bench:build-wasm": "wasm-pack build crates/diff-wasm --target nodejs --release --out-dir pkg-node && wasm-pack build crates/diff-wasm --target bundler --release --out-dir pkg-bundler"
