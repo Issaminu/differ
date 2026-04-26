@@ -1,0 +1,19 @@
+{
+  "name": "differ-diff-wasm",
+  "type": "module",
+  "description": "imara-diff wrapped for use from the Differ frontend",
+  "version": "0.1.0",
+  "license": "MIT",
+  "files": [
+    "differ_diff_wasm_bg.wasm",
+    "differ_diff_wasm.js",
+    "differ_diff_wasm_bg.js",
+    "differ_diff_wasm.d.ts"
+  ],
+  "main": "differ_diff_wasm.js",
+  "types": "differ_diff_wasm.d.ts",
+  "sideEffects": [
+    "./differ_diff_wasm.js",
+    "./snippets/*"
+  ]
+}

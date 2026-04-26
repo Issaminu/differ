@@ -15,6 +15,10 @@ dist/
 ## Bench profiler output
 bench/profiles/
 
+## Rust build artifacts for the diff-wasm crate
+crates/diff-wasm/target/
+crates/diff-wasm/pkg/
+
 ## Tauri / Rust
 src-tauri/target/
 src-tauri/gen/

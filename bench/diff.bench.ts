@@ -190,6 +190,34 @@ await runSection(
   FULL_DIFF_TIERS,
 );
 
+// Section 1b: same scenarios via the imara-diff WASM wrapper (line-level).
+// Loaded lazily so the rest of the suite still runs if the .wasm hasn't been
+// built yet. Includes the disjoint cases that we *had* to skip for CM-merge —
+// imara should handle them in human time.
+const imaraMod = await import(
+  "../crates/diff-wasm/pkg-node/differ_diff_wasm.js"
+).catch(() => null);
+if (imaraMod) {
+  const imaraDiff = (imaraMod as { diff: (a: string, b: string) => unknown[] }).diff;
+  // Use the same tight tier as CM-merge's full diff so the suite stays
+  // bounded if imara doesn't beat Myers as cleanly as advertised on a given
+  // workload. Includes disjoint fixtures we had to skip for CM-merge.
+  await runSection(
+    "imara-diff line-level (full)",
+    fixtures.map((f) => ({
+      name: f.spec.name,
+      fn: () => {
+        imaraDiff(f.a, f.b);
+      },
+    })),
+    FULL_DIFF_TIERS,
+  );
+} else {
+  progress(
+    "\n(imara-diff WASM not found at crates/diff-wasm/pkg-node — run `bun run bench:build-wasm` to enable that section)\n",
+  );
+}
+
 // Pre-compute baseline chunks + a 1-char insertion for incremental scenarios.
 progress("\nPre-computing baseline chunks...\n");
 interface Baseline {
