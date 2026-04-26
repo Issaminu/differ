@@ -198,7 +198,10 @@ const imaraMod = await import(
   "../crates/diff-wasm/pkg-node/differ_diff_wasm.js"
 ).catch(() => null);
 if (imaraMod) {
-  const imaraDiff = (imaraMod as { diff: (a: string, b: string) => unknown[] }).diff;
+  const imara = imaraMod as {
+    diff: (a: string, b: string) => unknown[];
+    diff_with_changes: (a: string, b: string) => unknown[];
+  };
   // Use the same tight tier as CM-merge's full diff so the suite stays
   // bounded if imara doesn't beat Myers as cleanly as advertised on a given
   // workload. Includes disjoint fixtures we had to skip for CM-merge.
@@ -207,7 +210,21 @@ if (imaraMod) {
     fixtures.map((f) => ({
       name: f.spec.name,
       fn: () => {
-        imaraDiff(f.a, f.b);
+        imara.diff(f.a, f.b);
+      },
+    })),
+    FULL_DIFF_TIERS,
+  );
+
+  // Same inputs but with the byte-level inner pass that fills `changes` —
+  // matches CM-merge's character-level inner highlight surface. This is the
+  // shape we'd actually ship.
+  await runSection(
+    "imara-diff with inner changes",
+    fixtures.map((f) => ({
+      name: f.spec.name,
+      fn: () => {
+        imara.diff_with_changes(f.a, f.b);
       },
     })),
     FULL_DIFF_TIERS,

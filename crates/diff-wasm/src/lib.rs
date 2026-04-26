@@ -5,14 +5,29 @@
 // algorithm, and `Diff::hunks()` yields edit ranges as line-index intervals
 // on each side. We translate those line intervals into character offsets so
 // the result drops in to the same call sites that today consume
-// `@codemirror/merge`'s `Chunk[]`. Inner character-level changes are emitted
-// as an empty array for now — line granularity is enough to confirm whether
-// imara's Histogram algorithm is fast enough to obviate the two-pass
-// progressive design.
+// `@codemirror/merge`'s `Chunk[]`.
+//
+// `diff` returns line-level chunks only (empty `changes`).
+// `diff_with_changes` runs a second imara pass byte-level inside each
+// chunk's text range to fill `changes`, matching CM-merge's character-level
+// inner-highlight surface.
+//
+// Note: positions are byte offsets into the UTF-8 input. For ASCII inputs
+// these are equivalent to JavaScript's UTF-16 code unit offsets that
+// CodeMirror consumes; for non-ASCII content we'd need a byte→UTF-16 map.
+// Tracked as a follow-up — Differ's current fixtures are ASCII.
 
-use imara_diff::{Algorithm, Diff, InternedInput};
+use imara_diff::{Algorithm, Diff, InternedInput, Interner};
 use serde::Serialize;
 use wasm_bindgen::prelude::*;
+
+// Per-chunk size cap for the inner byte-level diff. Above this the inner
+// pass is skipped (chunk gets `changes: []`). When a chunk is this large,
+// it almost always represents a wholesale block replacement where character
+// highlights aren't useful UX anyway, and the byte-level Histogram diff hits
+// the same N×D pathology that line-level diff has on disjoint inputs (one
+// 70 KB disjoint chunk on `medium/disjoint` ran ~3.3 s before this cap).
+const INNER_DIFF_BYTE_LIMIT: u32 = 16 * 1024;
 
 #[derive(Serialize)]
 struct Change {
@@ -58,12 +73,27 @@ fn line_offsets(s: &str) -> Vec<u32> {
 
 #[wasm_bindgen]
 pub fn diff(a: &str, b: &str) -> Result<JsValue, JsValue> {
+    diff_inner(a, b, false)
+}
+
+#[wasm_bindgen]
+pub fn diff_with_changes(a: &str, b: &str) -> Result<JsValue, JsValue> {
+    diff_inner(a, b, true)
+}
+
+fn diff_inner(a: &str, b: &str, with_changes: bool) -> Result<JsValue, JsValue> {
     let input = InternedInput::new(a, b);
     let mut diff_state = Diff::compute(Algorithm::Histogram, &input);
     diff_state.postprocess_lines(&input);
 
     let a_offsets = line_offsets(a);
     let b_offsets = line_offsets(b);
+    let a_bytes = a.as_bytes();
+    let b_bytes = b.as_bytes();
+
+    // Reuse one Interner across all inner passes — every inner diff calls
+    // `clear()` first so capacity is amortised but no leak.
+    let mut inner_interner: Interner<u8> = Interner::new(0);
 
     let chunks: Vec<Chunk> = diff_state
         .hunks()
@@ -72,17 +102,71 @@ pub fn diff(a: &str, b: &str) -> Result<JsValue, JsValue> {
             let a_end = clamp(hunk.before.end as usize, a_offsets.len() - 1);
             let b_start = clamp(hunk.after.start as usize, b_offsets.len() - 1);
             let b_end = clamp(hunk.after.end as usize, b_offsets.len() - 1);
+
+            let from_a = a_offsets[a_start];
+            let end_a = a_offsets[a_end];
+            let from_b = b_offsets[b_start];
+            let end_b = b_offsets[b_end];
+
+            let changes = if with_changes
+                && from_a < end_a
+                && from_b < end_b
+                && (end_a - from_a) <= INNER_DIFF_BYTE_LIMIT
+                && (end_b - from_b) <= INNER_DIFF_BYTE_LIMIT
+            {
+                let a_slice = &a_bytes[from_a as usize..end_a as usize];
+                let b_slice = &b_bytes[from_b as usize..end_b as usize];
+                inner_byte_diff(a_slice, b_slice, &mut inner_interner)
+            } else {
+                Vec::new()
+            };
+
             Chunk {
-                from_a: a_offsets[a_start],
-                end_a: a_offsets[a_end],
-                from_b: b_offsets[b_start],
-                end_b: b_offsets[b_end],
-                changes: Vec::new(),
+                from_a,
+                end_a,
+                from_b,
+                end_b,
+                changes,
             }
         })
         .collect();
 
     serde_wasm_bindgen::to_value(&chunks).map_err(JsValue::from)
+}
+
+// Byte-level inner diff for one line-hunk. Emits each inner edit as a
+// `Change` with offsets *relative to the chunk start* on each side, matching
+// CM-merge's `Chunk.changes` shape.
+fn inner_byte_diff(
+    a: &[u8],
+    b: &[u8],
+    interner: &mut Interner<u8>,
+) -> Vec<Change> {
+    interner.clear();
+    let mut input: InternedInput<u8> = InternedInput {
+        before: Vec::with_capacity(a.len()),
+        after: Vec::with_capacity(b.len()),
+        interner: std::mem::take(interner),
+    };
+    input.update_before(a.iter().copied());
+    input.update_after(b.iter().copied());
+
+    let diff_state = Diff::compute(Algorithm::Histogram, &input);
+
+    let changes = diff_state
+        .hunks()
+        .map(|hunk| Change {
+            from_a: hunk.before.start,
+            to_a: hunk.before.end,
+            from_b: hunk.after.start,
+            to_b: hunk.after.end,
+        })
+        .collect();
+
+    // Hand the interner back so the caller's allocation amortises across
+    // chunks.
+    *interner = input.interner;
+    changes
 }
 
 fn clamp(idx: usize, max: usize) -> usize {

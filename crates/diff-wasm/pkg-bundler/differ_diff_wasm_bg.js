@@ -14,6 +14,23 @@ export function diff(a, b) {
     }
     return takeFromExternrefTable0(ret[0]);
 }
+
+/**
+ * @param {string} a
+ * @param {string} b
+ * @returns {any}
+ */
+export function diff_with_changes(a, b) {
+    const ptr0 = passStringToWasm0(a, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+    const len0 = WASM_VECTOR_LEN;
+    const ptr1 = passStringToWasm0(b, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+    const len1 = WASM_VECTOR_LEN;
+    const ret = wasm.diff_with_changes(ptr0, len0, ptr1, len1);
+    if (ret[2]) {
+        throw takeFromExternrefTable0(ret[1]);
+    }
+    return takeFromExternrefTable0(ret[0]);
+}
 export function __wbg___wbindgen_throw_6b64449b9b9ed33c(arg0, arg1) {
     throw new Error(getStringFromWasm0(arg0, arg1));
 }
