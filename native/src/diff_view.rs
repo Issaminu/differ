@@ -13,13 +13,10 @@
 // the overlay glued to the text while scrolling). Changed-line ranges are
 // computed on edit and cached, so scrolling never re-diffs or re-clones text.
 
-use std::collections::HashSet;
+use std::time::Duration;
 
 use crate::history_store;
-use differ_core::{
-    decorations::{build_decorations, count_changed_lines, Side},
-    diff_with_changes, history::History, lang::detect_language, Chunk,
-};
+use differ_core::{history::History, pipeline::{compute, ChangedLine}};
 use gpui::{
     canvas, div, fill, point, prelude::*, px, rgb, rgba, size, Bounds, Context, Div, Entity, Hsla,
     Pixels, Point, SharedString, Stateful, Subscription, Window,
@@ -35,8 +32,10 @@ const REMOVED: u32 = 0xf85149;
 const ADDED_TINT: u32 = 0x3fb95033;
 const REMOVED_TINT: u32 = 0xf8514933;
 
-/// A changed line: (line index, byte start, byte end-of-content).
-type ChangedLine = (u32, u32, u32);
+/// Debounce window: recompute the diff this long after the last keystroke, so
+/// typing stays smooth on big docs (the editor handles keys natively; we only
+/// re-diff + re-render once typing pauses).
+const RECOMPUTE_DEBOUNCE: Duration = Duration::from_millis(150);
 
 pub struct DiffView {
     editor_a: Entity<InputState>,
@@ -50,6 +49,9 @@ pub struct DiffView {
     /// Last-seen scroll offsets, for the scroll poll.
     last_scroll_a: Point<Pixels>,
     last_scroll_b: Point<Pixels>,
+    /// Debounce generation — a scheduled recompute only fires if it's still the
+    /// latest (i.e. no newer keystroke came in during the debounce window).
+    recompute_gen: u64,
     history: History,
     history_open: bool,
     _subs: Vec<Subscription>,
@@ -71,8 +73,9 @@ impl DiffView {
 
         let on_change = |this: &mut Self, _e: Entity<InputState>, event: &InputEvent, cx: &mut Context<Self>| {
             if matches!(event, InputEvent::Change) {
-                this.recompute(cx);
-                cx.notify();
+                // Debounced: don't re-diff on every keystroke (that's what froze
+                // typing on big docs). The editor already applied the edit.
+                this.schedule_recompute(cx);
             }
         };
         let subs = vec![cx.subscribe(&editor_a, on_change), cx.subscribe(&editor_b, on_change)];
@@ -89,12 +92,30 @@ impl DiffView {
             changed_b: Vec::new(),
             last_scroll_a: Point::default(),
             last_scroll_b: Point::default(),
+            recompute_gen: 0,
             history: history_store::load(),
             history_open: false,
             _subs: subs,
         };
         view.recompute(cx);
         view
+    }
+
+    /// Schedule a recompute after the debounce window; superseded if another
+    /// keystroke arrives first (so continuous typing never re-diffs).
+    fn schedule_recompute(&mut self, cx: &mut Context<Self>) {
+        self.recompute_gen = self.recompute_gen.wrapping_add(1);
+        let generation = self.recompute_gen;
+        cx.spawn(async move |this, cx| {
+            cx.background_executor().timer(RECOMPUTE_DEBOUNCE).await;
+            let _ = this.update(cx, |this, cx| {
+                if this.recompute_gen == generation {
+                    this.recompute(cx);
+                    cx.notify();
+                }
+            });
+        })
+        .detach();
     }
 
     /// Re-render this view when either editor scrolls (the editor emits no
@@ -115,26 +136,18 @@ impl DiffView {
         let a = self.editor_a.read(cx).value().to_string();
         let b = self.editor_b.read(cx).value().to_string();
 
-        let chunks = diff_with_changes(&a, &b);
-        let mut added = 0;
-        let mut removed = 0;
-        for c in &chunks {
-            removed += count_changed_lines(&a, c.from_a, c.end_a) as usize;
-            added += count_changed_lines(&b, c.from_b, c.end_b) as usize;
-        }
-        self.stats = (added, removed);
-        self.changed_a = changed_line_rows(&a, &chunks, Side::A);
-        self.changed_b = changed_line_rows(&b, &chunks, Side::B);
+        let c = compute(&a, &b);
+        self.stats = (c.added, c.removed);
+        self.changed_a = c.changed_a;
+        self.changed_b = c.changed_b;
 
-        let sample = if b.len() >= a.len() { &b } else { &a };
-        let lang = detect_language(sample);
-        if lang != self.language {
-            self.language = lang;
-            self.editor_a.update(cx, |ed, cx| ed.set_highlighter(lang, cx));
-            self.editor_b.update(cx, |ed, cx| ed.set_highlighter(lang, cx));
+        if c.language != self.language {
+            self.language = c.language;
+            self.editor_a.update(cx, |ed, cx| ed.set_highlighter(c.language, cx));
+            self.editor_b.update(cx, |ed, cx| ed.set_highlighter(c.language, cx));
         }
 
-        self.history.capture(&a, &b, lang, history_store::now_ms());
+        self.history.capture(&a, &b, c.language, history_store::now_ms());
     }
 
     /// A styled toolbar button (caller attaches the click handler).
@@ -160,20 +173,6 @@ impl DiffView {
             .child(Input::new(editor).bordered(false).size_full().text_size(px(13.0)))
             .child(overlay)
     }
-}
-
-/// Compute the changed lines (index + byte range) for one side.
-fn changed_line_rows(text: &str, chunks: &[Chunk], side: Side) -> Vec<ChangedLine> {
-    let changed: HashSet<u32> = build_decorations(side, chunks, text).changed_lines.into_iter().collect();
-    let mut out = Vec::new();
-    let mut off = 0u32;
-    for (idx, line) in text.split('\n').enumerate() {
-        if changed.contains(&off) {
-            out.push((idx as u32, off, off + line.len() as u32));
-        }
-        off += line.len() as u32 + 1;
-    }
-    out
 }
 
 /// Paint translucent tint rects over the changed lines that are currently

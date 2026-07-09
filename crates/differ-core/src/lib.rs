@@ -17,6 +17,7 @@ pub mod fixtures;
 pub mod history;
 pub mod lang;
 pub mod model;
+pub mod pipeline;
 
 /// Per-chunk size cap for the inner byte-level diff. Above this the inner pass
 /// is skipped (chunk gets `changes: []`). See the WASM crate for the rationale
