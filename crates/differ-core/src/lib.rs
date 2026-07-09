@@ -11,6 +11,7 @@
 
 use imara_diff::{Algorithm, Diff, InternedInput, Interner};
 
+pub mod decorations;
 pub mod fixtures;
 
 /// Per-chunk size cap for the inner byte-level diff. Above this the inner pass
