@@ -1306,6 +1306,8 @@ name = "differ-core"
 version = "0.1.0"
 dependencies = [
  "imara-diff",
+ "regex",
+ "serde_json",
 ]
 
 [[package]]

@@ -154,7 +154,6 @@ impl Pane {
 
 pub struct DiffView {
     model: DiffModel,
-    language: String,
     pane_a: Pane,
     pane_b: Pane,
     focus: FocusHandle,
@@ -162,12 +161,11 @@ pub struct DiffView {
 }
 
 impl DiffView {
-    pub fn new(a: &str, b: &str, language: &str, cx: &mut Context<Self>) -> Self {
+    pub fn new(a: &str, b: &str, cx: &mut Context<Self>) -> Self {
         let model = DiffModel::new(a, b);
-        let (pane_a, pane_b) = Self::build_panes(&model, language);
+        let (pane_a, pane_b) = Self::build_panes(&model);
         Self {
             model,
-            language: language.to_string(),
             pane_a,
             pane_b,
             focus: cx.focus_handle(),
@@ -175,15 +173,18 @@ impl DiffView {
         }
     }
 
-    fn build_panes(model: &DiffModel, language: &str) -> (Pane, Pane) {
+    /// (Re)build the syntax + decoration panes using the model's currently
+    /// detected language.
+    fn build_panes(model: &DiffModel) -> (Pane, Pane) {
         let chunks = model.chunks();
+        let language = model.language();
         let pane_a = Pane::build(model.text(Side::A), Side::A, chunks, language, rgba(0xf8514922).into(), rgba(0xf8514955).into(), rgb(0xf85149).into());
         let pane_b = Pane::build(model.text(Side::B), Side::B, chunks, language, rgba(0x3fb95022).into(), rgba(0x3fb95055).into(), rgb(0x3fb950).into());
         (pane_a, pane_b)
     }
 
     fn rebuild_panes(&mut self) {
-        let (a, b) = Self::build_panes(&self.model, &self.language);
+        let (a, b) = Self::build_panes(&self.model);
         self.pane_a = a;
         self.pane_b = b;
     }

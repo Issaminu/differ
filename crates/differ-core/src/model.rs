@@ -12,7 +12,9 @@
 use crate::{
     align::{align, AlignedRow},
     decorations::{build_decorations, Decorations, Side},
-    diff_with_changes, Chunk,
+    diff_with_changes,
+    lang::detect_language,
+    Chunk,
 };
 
 /// What an `apply_key` call did — lets the view decide whether to recompute
@@ -32,6 +34,7 @@ pub struct DiffModel {
     active: Side,
     chunks: Vec<Chunk>,
     rows: Vec<AlignedRow>,
+    language: &'static str,
 }
 
 impl DiffModel {
@@ -39,7 +42,16 @@ impl DiffModel {
         let a = a.into();
         let b = b.into();
         let cursor_b = b.len(); // start at end of the editable side so typing appends
-        let mut m = Self { a, b, cursor_a: 0, cursor_b, active: Side::B, chunks: Vec::new(), rows: Vec::new() };
+        let mut m = Self {
+            a,
+            b,
+            cursor_a: 0,
+            cursor_b,
+            active: Side::B,
+            chunks: Vec::new(),
+            rows: Vec::new(),
+            language: "plaintext",
+        };
         m.recompute();
         m
     }
@@ -62,6 +74,12 @@ impl DiffModel {
 
     pub fn active(&self) -> Side {
         self.active
+    }
+
+    /// Auto-detected language id (updated on every edit); the view feeds it to
+    /// the syntax highlighter. Unknown ids fall back to plain text.
+    pub fn language(&self) -> &'static str {
+        self.language
     }
 
     pub fn set_active(&mut self, side: Side) {
@@ -177,6 +195,10 @@ impl DiffModel {
         self.cursor_b = self.cursor_b.min(self.b.len());
         self.chunks = diff_with_changes(&self.a, &self.b);
         self.rows = align(&self.chunks, &self.a, &self.b);
+        // Detect on the larger side (mirrors the TS: the side with more content
+        // is the better sample), so an empty peer doesn't force plaintext.
+        let sample = if self.b.len() >= self.a.len() { &self.b } else { &self.a };
+        self.language = detect_language(sample);
     }
 }
 

@@ -8,6 +8,8 @@ publish = false
 
 [dependencies]
 imara-diff = "0.2"
+regex = "1"
+serde_json = "1"
 
 [[bin]]
 name = "diff-bench"
