@@ -18,8 +18,8 @@ use differ_core::{
     pipeline::{compute, DiffCompute, Tint, TintKind},
 };
 use gpui::{
-    div, point, prelude::*, px, rgb, rgba, Context, Div, Entity, HighlightStyle, Hsla, Pixels,
-    Point, SharedString, Stateful, Subscription, Window,
+    div, point, prelude::*, px, rgb, rgba, Context, Div, Entity, HighlightStyle, Hsla,
+    PathPromptOptions, Pixels, Point, SharedString, Stateful, Subscription, Window,
 };
 use gpui_component::input::{Input, InputEvent, InputState};
 use gpui_component::ActiveTheme;
@@ -45,6 +45,8 @@ pub struct DiffView {
     changes_a: Vec<u32>,
     changes_b: Vec<u32>,
     current_change: usize,
+    /// Which pane last had focus (true = A/left) — the target for "Open".
+    focused_a: bool,
     /// Vertical scroll lock between the two panes + its poll bookkeeping.
     scroll_lock: bool,
     poll_active: bool,
@@ -69,12 +71,18 @@ impl DiffView {
         let editor_a = mk(a, window, cx);
         let editor_b = mk(b, window, cx);
 
-        let on_change = |this: &mut Self, _e: Entity<InputState>, event: &InputEvent, cx: &mut Context<Self>| {
-            if matches!(event, InputEvent::Change) {
-                this.schedule_recompute(cx);
-            }
-        };
-        let subs = vec![cx.subscribe(&editor_a, on_change), cx.subscribe(&editor_b, on_change)];
+        let subs = vec![
+            cx.subscribe(&editor_a, |this, _e, event: &InputEvent, cx| match event {
+                InputEvent::Change => this.schedule_recompute(cx),
+                InputEvent::Focus => this.focused_a = true,
+                _ => {}
+            }),
+            cx.subscribe(&editor_b, |this, _e, event: &InputEvent, cx| match event {
+                InputEvent::Change => this.schedule_recompute(cx),
+                InputEvent::Focus => this.focused_a = false,
+                _ => {}
+            }),
+        ];
 
         let mut view = Self {
             editor_a,
@@ -85,6 +93,7 @@ impl DiffView {
             changes_a: Vec::new(),
             changes_b: Vec::new(),
             current_change: 0,
+            focused_a: false,
             scroll_lock: false,
             poll_active: false,
             last_scroll_a: Point::default(),
@@ -313,6 +322,26 @@ impl Render for DiffView {
             .child(Self::button("btn-prev", "◀", secondary, fg).on_click(cx.listener(|this, _, _window, cx| this.goto_change(-1, cx))))
             .child(Self::button("btn-next", "▶", secondary, fg).on_click(cx.listener(|this, _, _window, cx| this.goto_change(1, cx))))
             .child(div().flex_1())
+            .child(Self::button("btn-open", "Open", secondary, fg).on_click(cx.listener(|this, _, window, cx| {
+                // Load a file into the focused pane via the native picker (async).
+                let side_a = this.focused_a;
+                let rx = cx.prompt_for_paths(PathPromptOptions { files: true, directories: false, multiple: false, prompt: None });
+                cx.spawn_in(window, async move |this, cx| {
+                    if let Ok(Ok(Some(paths))) = rx.await {
+                        if let Some(path) = paths.into_iter().next() {
+                            if let Ok(content) = std::fs::read_to_string(&path) {
+                                let _ = this.update_in(cx, |this, window, cx| {
+                                    let ed = if side_a { this.editor_a.clone() } else { this.editor_b.clone() };
+                                    ed.update(cx, |ed, cx| ed.set_value(content, window, cx));
+                                    this.recompute(cx);
+                                    cx.notify();
+                                });
+                            }
+                        }
+                    }
+                })
+                .detach();
+            })))
             .child(Self::button("btn-lock", if self.scroll_lock { "Sync ●" } else { "Sync ○" }, secondary, fg).on_click(cx.listener(|this, _, window, cx| this.toggle_scroll_lock(window, cx))))
             .child(Self::button("btn-swap", "Swap", secondary, fg).on_click(cx.listener(|this, _, window, cx| {
                 let a = this.editor_a.read(cx).value();
