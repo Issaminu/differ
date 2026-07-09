@@ -1,37 +1,21 @@
-// Differ on GPUI — Phase 0 spike.
-//
-// Goal of this file: prove the toolchain end-to-end — Metal shaders compile,
-// gpui + gpui-component link, a window opens and renders. It deliberately
-// renders a plain gpui `div` (the most stable API surface) rather than the
-// editor component; wiring gpui-component's editor + our diff view is Phase 2.
+// Differ on GPUI.
 //
 // Entry point follows gpui-component's documented pattern:
 //   gpui_platform::application() -> run -> gpui_component::init(cx) -> open_window.
+// The root view is our own two-pane diff view (see diff_view.rs), built on raw
+// gpui with gpui-component reused as a library for syntax highlighting.
 
+mod diff_view;
+
+use diff_view::DiffView;
 use gpui::{
-    div, px, rgb, size, App, AppContext, Bounds, Context, IntoElement, ParentElement, Render,
-    Styled, Window, WindowBounds, WindowOptions,
+    px, size, App, AppContext, Bounds, WindowBounds, WindowOptions,
 };
 
-/// Root view. Phase 2 replaces this body with the two-pane diff view backed by
-/// `differ_core::diff_with_changes`.
-struct DifferApp;
-
-impl Render for DifferApp {
-    fn render(&mut self, _window: &mut Window, _cx: &mut Context<Self>) -> impl IntoElement {
-        div()
-            .flex()
-            .flex_col()
-            .gap_2()
-            .size_full()
-            .items_center()
-            .justify_center()
-            .bg(rgb(0x1e1e1e))
-            .text_color(rgb(0xf0f0f0))
-            .child("Differ — GPUI spike")
-            .child(div().text_color(rgb(0x9aa0a6)).child("native diff engine linked ✓"))
-    }
-}
+// Temporary sample content so the view has something to diff until file/paste
+// input is wired up. Side B (shown) changes lines 2 and 5.
+const SAMPLE_A: &str = "fn main() {\n    let x = 1;\n    let y = 2;\n    println!(\"{}\", x);\n    done();\n}\n";
+const SAMPLE_B: &str = "fn main() {\n    let x = 10;\n    let y = 2;\n    println!(\"{}\", x);\n    finish();\n}\n";
 
 fn main() {
     let app = gpui_platform::application();
@@ -45,7 +29,7 @@ fn main() {
                 window_bounds: Some(WindowBounds::Windowed(bounds)),
                 ..Default::default()
             },
-            |_window, cx| cx.new(|_cx| DifferApp),
+            |_window, cx| cx.new(|_cx| DiffView::new(SAMPLE_A, SAMPLE_B)),
         )
         .expect("failed to open window");
     });
