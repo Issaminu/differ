@@ -18,8 +18,9 @@ use differ_core::{
     pipeline::{compute, DiffCompute, Tint, TintKind},
 };
 use gpui::{
-    div, point, prelude::*, px, rgb, rgba, Context, Div, Entity, HighlightStyle, Hsla,
-    PathPromptOptions, Pixels, Point, SharedString, Stateful, Subscription, Window,
+    canvas, div, fill, point, prelude::*, px, rgb, rgba, size, Bounds, Context, Div, Entity,
+    HighlightStyle, Hsla, MouseButton, MouseDownEvent, PathPromptOptions, Pixels, Point,
+    SharedString, Stateful, Subscription, Window,
 };
 use gpui_component::input::{Input, InputEvent, InputState};
 use gpui_component::ActiveTheme;
@@ -45,6 +46,9 @@ pub struct DiffView {
     changes_a: Vec<u32>,
     changes_b: Vec<u32>,
     current_change: usize,
+    /// Total line counts per side (for the change-map ruler's y mapping).
+    lines_a: usize,
+    lines_b: usize,
     /// Which pane last had focus (true = A/left) — the target for "Open".
     focused_a: bool,
     /// Vertical scroll lock between the two panes + its poll bookkeeping.
@@ -93,6 +97,8 @@ impl DiffView {
             changes_a: Vec::new(),
             changes_b: Vec::new(),
             current_change: 0,
+            lines_a: 1,
+            lines_b: 1,
             focused_a: false,
             scroll_lock: false,
             poll_active: false,
@@ -148,6 +154,8 @@ impl DiffView {
     /// Apply a computed diff: stats, language, in-editor tints, history.
     fn apply_compute(&mut self, comp: DiffCompute, a: &str, b: &str, cx: &mut Context<Self>) {
         self.stats = (comp.added, comp.removed);
+        self.lines_a = a.split('\n').count();
+        self.lines_b = b.split('\n').count();
         self.changes_a = comp.changes_a;
         self.changes_b = comp.changes_b;
         if self.current_change >= self.changes_b.len() {
@@ -222,6 +230,79 @@ impl DiffView {
         self.last_scroll_a = self.editor_a.read(cx).scroll_offset();
         self.last_scroll_b = self.editor_b.read(cx).scroll_offset();
         cx.on_next_frame(window, Self::sync_scroll_tick);
+    }
+
+    /// The center separator, doubling as a document change-map: red ticks (left
+    /// = removed on A) and green ticks (right = added on B) at each change's
+    /// relative position. Click a spot to jump both panes to the nearest change.
+    fn render_change_map(&self, cx: &mut Context<Self>) -> Div {
+        let border = cx.theme().border;
+        let ca = self.changes_a.clone();
+        let cb = self.changes_b.clone();
+        let la = self.lines_a.max(1) as f32;
+        let lb = self.lines_b.max(1) as f32;
+
+        let ticks = canvas(
+            |_b, _w, _c| (),
+            move |bounds, _, window, _cx| {
+                let h = bounds.size.height;
+                let half = bounds.size.width / 2.0;
+                let th = px(2.0);
+                for &line in &ca {
+                    let y = bounds.origin.y + h * (line as f32 / la);
+                    window.paint_quad(fill(
+                        Bounds { origin: point(bounds.origin.x, y), size: size(half, th) },
+                        rgb(REMOVED),
+                    ));
+                }
+                for &line in &cb {
+                    let y = bounds.origin.y + h * (line as f32 / lb);
+                    window.paint_quad(fill(
+                        Bounds { origin: point(bounds.origin.x + half, y), size: size(half, th) },
+                        rgb(ADDED),
+                    ));
+                }
+            },
+        )
+        .absolute()
+        .size_full();
+
+        div()
+            .relative()
+            .flex_none()
+            .w(px(14.0))
+            .h_full()
+            .bg(border)
+            .cursor_pointer()
+            .on_mouse_down(MouseButton::Left, cx.listener(|this, ev: &MouseDownEvent, window, cx| {
+                if this.changes_b.is_empty() {
+                    return;
+                }
+                // Nearest change to the click, mapped onto the B side's height.
+                let top = px(38.0); // below the toolbar
+                let h = window.viewport_size().height - top;
+                let click = ev.position.y;
+                let lb = this.lines_b.max(1) as f32;
+                let mut best = 0usize;
+                let mut best_d = px(f32::MAX);
+                for (i, &line) in this.changes_b.iter().enumerate() {
+                    let y = top + h * (line as f32 / lb);
+                    let d = if y > click { y - click } else { click - y };
+                    if d < best_d {
+                        best_d = d;
+                        best = i;
+                    }
+                }
+                this.current_change = best;
+                if let Some(l) = this.changes_a.get(best).copied() {
+                    Self::scroll_editor_to_line(&this.editor_a, l, cx);
+                }
+                if let Some(l) = this.changes_b.get(best).copied() {
+                    Self::scroll_editor_to_line(&this.editor_b, l, cx);
+                }
+                cx.notify();
+            }))
+            .child(ticks)
     }
 
     fn button(id: &'static str, label: &str, bg: Hsla, fg: Hsla) -> Stateful<Div> {
@@ -368,7 +449,7 @@ impl Render for DiffView {
             .flex_row()
             .flex_1()
             .child(Input::new(&self.editor_a).bordered(false).flex_1().h_full().text_size(px(13.0)).font_family(mono.clone()))
-            .child(div().w(px(1.0)).flex_none().bg(border))
+            .child(self.render_change_map(cx))
             .child(Input::new(&self.editor_b).bordered(false).flex_1().h_full().text_size(px(13.0)).font_family(mono));
 
         let body = div().flex().flex_col().flex_1().child(toolbar).child(editors);
