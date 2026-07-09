@@ -36,6 +36,9 @@ const CHAR_ALPHA: u32 = 0x66;
 /// never blocks — this just avoids redundant background work.
 const RECOMPUTE_DEBOUNCE: Duration = Duration::from_millis(30);
 
+// Keyboard-dispatchable actions (bound in main.rs).
+gpui::actions!(differ, [NextChange, PrevChange, SwapSides, ClearBoth, OpenFile, ToggleSync, ToggleHistory]);
+
 pub struct DiffView {
     editor_a: Entity<InputState>,
     editor_b: Entity<InputState>,
@@ -204,6 +207,52 @@ impl DiffView {
         Self::scroll_editor_to_line(&self.editor_a, la, cx);
         Self::scroll_editor_to_line(&self.editor_b, lb, cx);
         cx.notify();
+    }
+
+    /// Swap the two panes' contents.
+    fn do_swap(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let a = self.editor_a.read(cx).value();
+        let b = self.editor_b.read(cx).value();
+        self.editor_a.update(cx, |ed, cx| ed.set_value(b, window, cx));
+        self.editor_b.update(cx, |ed, cx| ed.set_value(a, window, cx));
+        self.recompute(cx);
+        cx.notify();
+    }
+
+    /// Clear both panes.
+    fn do_clear(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.editor_a.update(cx, |ed, cx| ed.set_value("", window, cx));
+        self.editor_b.update(cx, |ed, cx| ed.set_value("", window, cx));
+        self.recompute(cx);
+        cx.notify();
+    }
+
+    /// Toggle the history drawer (persists on toggle).
+    fn toggle_history(&mut self, cx: &mut Context<Self>) {
+        self.history_open = !self.history_open;
+        history_store::save(&self.history);
+        cx.notify();
+    }
+
+    /// Open a file into the focused pane via the native picker (async).
+    fn do_open(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let side_a = self.focused_a;
+        let rx = cx.prompt_for_paths(PathPromptOptions { files: true, directories: false, multiple: false, prompt: None });
+        cx.spawn_in(window, async move |this, cx| {
+            if let Ok(Ok(Some(paths))) = rx.await {
+                if let Some(path) = paths.into_iter().next() {
+                    if let Ok(content) = std::fs::read_to_string(&path) {
+                        let _ = this.update_in(cx, |this, window, cx| {
+                            let ed = if side_a { this.editor_a.clone() } else { this.editor_b.clone() };
+                            ed.update(cx, |ed, cx| ed.set_value(content, window, cx));
+                            this.recompute(cx);
+                            cx.notify();
+                        });
+                    }
+                }
+            }
+        })
+        .detach();
     }
 
     /// Toggle vertical scroll lock; starts the sync poll if turning on.
@@ -411,46 +460,11 @@ impl Render for DiffView {
             .child(Self::button("btn-prev", "◀", secondary, fg).on_click(cx.listener(|this, _, _window, cx| this.goto_change(-1, cx))))
             .child(Self::button("btn-next", "▶", secondary, fg).on_click(cx.listener(|this, _, _window, cx| this.goto_change(1, cx))))
             .child(div().flex_1())
-            .child(Self::button("btn-open", "Open", secondary, fg).on_click(cx.listener(|this, _, window, cx| {
-                // Load a file into the focused pane via the native picker (async).
-                let side_a = this.focused_a;
-                let rx = cx.prompt_for_paths(PathPromptOptions { files: true, directories: false, multiple: false, prompt: None });
-                cx.spawn_in(window, async move |this, cx| {
-                    if let Ok(Ok(Some(paths))) = rx.await {
-                        if let Some(path) = paths.into_iter().next() {
-                            if let Ok(content) = std::fs::read_to_string(&path) {
-                                let _ = this.update_in(cx, |this, window, cx| {
-                                    let ed = if side_a { this.editor_a.clone() } else { this.editor_b.clone() };
-                                    ed.update(cx, |ed, cx| ed.set_value(content, window, cx));
-                                    this.recompute(cx);
-                                    cx.notify();
-                                });
-                            }
-                        }
-                    }
-                })
-                .detach();
-            })))
+            .child(Self::button("btn-open", "Open", secondary, fg).on_click(cx.listener(|this, _, window, cx| this.do_open(window, cx))))
             .child(Self::button("btn-lock", if self.scroll_lock { "Sync ●" } else { "Sync ○" }, secondary, fg).on_click(cx.listener(|this, _, window, cx| this.toggle_scroll_lock(window, cx))))
-            .child(Self::button("btn-swap", "Swap", secondary, fg).on_click(cx.listener(|this, _, window, cx| {
-                let a = this.editor_a.read(cx).value();
-                let b = this.editor_b.read(cx).value();
-                this.editor_a.update(cx, |ed, cx| ed.set_value(b, window, cx));
-                this.editor_b.update(cx, |ed, cx| ed.set_value(a, window, cx));
-                this.recompute(cx);
-                cx.notify();
-            })))
-            .child(Self::button("btn-clear", "Clear", secondary, fg).on_click(cx.listener(|this, _, window, cx| {
-                this.editor_a.update(cx, |ed, cx| ed.set_value("", window, cx));
-                this.editor_b.update(cx, |ed, cx| ed.set_value("", window, cx));
-                this.recompute(cx);
-                cx.notify();
-            })))
-            .child(Self::button("btn-history", "History", secondary, fg).on_click(cx.listener(|this, _, _window, cx| {
-                this.history_open = !this.history_open;
-                history_store::save(&this.history);
-                cx.notify();
-            })));
+            .child(Self::button("btn-swap", "Swap", secondary, fg).on_click(cx.listener(|this, _, window, cx| this.do_swap(window, cx))))
+            .child(Self::button("btn-clear", "Clear", secondary, fg).on_click(cx.listener(|this, _, window, cx| this.do_clear(window, cx))))
+            .child(Self::button("btn-history", "History", secondary, fg).on_click(cx.listener(|this, _, _window, cx| this.toggle_history(cx))));
 
         let editors = div()
             .flex()
@@ -461,7 +475,20 @@ impl Render for DiffView {
             .child(Input::new(&self.editor_b).bordered(false).flex_1().h_full().text_size(px(13.0)).font_family(mono));
 
         let body = div().flex().flex_col().flex_1().child(toolbar).child(editors);
-        let mut root = div().flex().flex_row().size_full().bg(bg).child(body);
+        let mut root = div()
+            .key_context("Differ")
+            .on_action(cx.listener(|this, _: &NextChange, _w, cx| this.goto_change(1, cx)))
+            .on_action(cx.listener(|this, _: &PrevChange, _w, cx| this.goto_change(-1, cx)))
+            .on_action(cx.listener(|this, _: &SwapSides, window, cx| this.do_swap(window, cx)))
+            .on_action(cx.listener(|this, _: &ClearBoth, window, cx| this.do_clear(window, cx)))
+            .on_action(cx.listener(|this, _: &OpenFile, window, cx| this.do_open(window, cx)))
+            .on_action(cx.listener(|this, _: &ToggleSync, window, cx| this.toggle_scroll_lock(window, cx)))
+            .on_action(cx.listener(|this, _: &ToggleHistory, _w, cx| this.toggle_history(cx)))
+            .flex()
+            .flex_row()
+            .size_full()
+            .bg(bg)
+            .child(body);
         if self.history_open {
             root = root.child(self.render_drawer(cx));
         }

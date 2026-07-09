@@ -10,9 +10,12 @@ mod history_store;
 
 use std::borrow::Cow;
 
-use diff_view::DiffView;
+use diff_view::{
+    ClearBoth, DiffView, NextChange, OpenFile, PrevChange, SwapSides, ToggleHistory, ToggleSync,
+};
 use gpui::{
-    point, px, size, App, AppContext, Bounds, TitlebarOptions, WindowBounds, WindowOptions,
+    point, px, size, App, AppContext, Bounds, KeyBinding, TitlebarOptions, WindowBounds,
+    WindowOptions,
 };
 
 // Temporary sample content so the view has something to diff until file/paste
@@ -31,6 +34,18 @@ fn main() {
             Cow::Borrowed(&include_bytes!("../assets/fonts/JetBrainsMono-Bold.ttf")[..]),
             Cow::Borrowed(&include_bytes!("../assets/fonts/JetBrainsMono-Italic.ttf")[..]),
             Cow::Borrowed(&include_bytes!("../assets/fonts/JetBrainsMono-BoldItalic.ttf")[..]),
+        ]);
+
+        // Keyboard shortcuts (global). F8 / Shift-F8 to walk changes; Cmd-O to
+        // open; Cmd-Shift-{X,K,L,Y} for swap / clear / sync-lock / history.
+        cx.bind_keys([
+            KeyBinding::new("f8", NextChange, None),
+            KeyBinding::new("shift-f8", PrevChange, None),
+            KeyBinding::new("cmd-o", OpenFile, None),
+            KeyBinding::new("cmd-shift-x", SwapSides, None),
+            KeyBinding::new("cmd-shift-k", ClearBoth, None),
+            KeyBinding::new("cmd-shift-l", ToggleSync, None),
+            KeyBinding::new("cmd-shift-y", ToggleHistory, None),
         ]);
         cx.activate(true);
 
