@@ -35,7 +35,15 @@ struct Pane {
 }
 
 impl Pane {
-    fn build(text: &str, side: Side, chunks: &[Chunk], language: &str, tint: Hsla, char_tint: Hsla, gutter: Hsla) -> Self {
+    fn new(
+        text: &str,
+        side: Side,
+        chunks: &[Chunk],
+        syntax: Vec<(Range<usize>, HighlightStyle)>,
+        tint: Hsla,
+        char_tint: Hsla,
+        gutter: Hsla,
+    ) -> Self {
         let deco = build_decorations(side, chunks, text);
 
         let mut line_ranges = Vec::new();
@@ -44,12 +52,6 @@ impl Pane {
             line_ranges.push(off..off + line.len());
             off += line.len() + 1;
         }
-
-        let mut highlighter = SyntaxHighlighter::new(language);
-        let rope = Rope::from_str(text);
-        highlighter.update(None, &rope, None);
-        let theme = HighlightTheme::default_dark();
-        let syntax = highlighter.styles(&(0..text.len()), theme.as_ref());
 
         Self {
             text: text.to_string(),
@@ -67,6 +69,7 @@ impl Pane {
     fn line_runs(&self, r: &Range<usize>) -> Vec<(Range<usize>, HighlightStyle)> {
         let (ls, le) = (r.start, r.end);
         let len = le - ls;
+        let content = &self.text[ls..le];
 
         let syntax: Vec<(Range<usize>, Hsla)> = self
             .syntax
@@ -98,6 +101,14 @@ impl Pane {
             bounds.push(r.end);
         }
         bounds.retain(|&b| b <= len);
+        // Snap every boundary down to a char boundary of the line content —
+        // the byte-level diff can land a span edge inside a multibyte char,
+        // which would make gpui's StyledText abort on a non-char-boundary run.
+        for b in bounds.iter_mut() {
+            while *b > 0 && *b < len && !content.is_char_boundary(*b) {
+                *b -= 1;
+            }
+        }
         bounds.sort_unstable();
         bounds.dedup();
 
@@ -123,29 +134,35 @@ impl Pane {
         runs
     }
 
-    fn cell(&self, line: Option<u32>, changed: bool, caret_at: Option<usize>) -> Div {
+    fn cell(&self, line: Option<u32>, changed: bool, cursor_line: bool) -> Div {
         match line {
             Some(i) => {
                 let r = self.line_ranges[i as usize].clone();
+                // NOTE: no caret glyph is inserted into the text — doing so
+                // shifted the syntax-run byte offsets off char boundaries and
+                // crashed gpui. The active line is indicated by a background +
+                // brighter gutter instead; a real caret needs text geometry
+                // (deferred). runs are computed on the unmodified line, so all
+                // run boundaries stay on char boundaries.
                 let runs = self.line_runs(&r);
-                let mut content = self.text[r].to_string();
-                if let Some(off) = caret_at {
-                    content.insert(off.min(content.len()), '\u{2502}');
-                }
+                let content = self.text[r].to_string();
                 let text = StyledText::new(content).with_highlights(runs);
+                let gutter_color = if cursor_line {
+                    rgb(0xffffff).into()
+                } else if changed {
+                    self.gutter_changed
+                } else {
+                    rgb(0x6b7280).into()
+                };
                 let mut cell = div()
                     .flex()
                     .flex_row()
                     .flex_1()
-                    .child(
-                        div()
-                            .w(px(44.0))
-                            .flex_none()
-                            .text_color(if changed { self.gutter_changed } else { rgb(0x6b7280).into() })
-                            .child(format!("{:>4} ", i + 1)),
-                    )
+                    .child(div().w(px(44.0)).flex_none().text_color(gutter_color).child(format!("{:>4} ", i + 1)))
                     .child(div().flex_1().child(text));
-                if changed {
+                if cursor_line {
+                    cell = cell.bg(rgb(0x2d3139));
+                } else if changed {
                     cell = cell.bg(self.line_tint);
                 }
                 cell
@@ -159,6 +176,12 @@ pub struct DiffView {
     model: DiffModel,
     pane_a: Pane,
     pane_b: Pane,
+    // Cached tree-sitter highlighters, reused across keystrokes — recreated
+    // only when the detected language changes. Recreating per keystroke
+    // recompiled the highlight query each time and made typing lag badly.
+    hl_a: SyntaxHighlighter,
+    hl_b: SyntaxHighlighter,
+    hl_lang: String,
     focus: FocusHandle,
     scroll_handle: UniformListScrollHandle,
     history: History,
@@ -168,16 +191,40 @@ pub struct DiffView {
 impl DiffView {
     pub fn new(a: &str, b: &str, cx: &mut Context<Self>) -> Self {
         let model = DiffModel::new(a, b);
-        let (pane_a, pane_b) = Self::build_panes(&model);
+        let lang = model.language();
+        let mut hl_a = SyntaxHighlighter::new(lang);
+        let mut hl_b = SyntaxHighlighter::new(lang);
+        let syntax_a = Self::highlight(&mut hl_a, model.text(Side::A));
+        let syntax_b = Self::highlight(&mut hl_b, model.text(Side::B));
+        let pane_a = Self::pane(model.text(Side::A), Side::A, model.chunks(), syntax_a);
+        let pane_b = Self::pane(model.text(Side::B), Side::B, model.chunks(), syntax_b);
         Self {
             model,
             pane_a,
             pane_b,
+            hl_a,
+            hl_b,
+            hl_lang: lang.to_string(),
             focus: cx.focus_handle(),
             scroll_handle: UniformListScrollHandle::new(),
             history: history_store::load(),
             history_open: false,
         }
+    }
+
+    /// Run a cached highlighter over `text` and return its styled spans.
+    fn highlight(hl: &mut SyntaxHighlighter, text: &str) -> Vec<(Range<usize>, HighlightStyle)> {
+        hl.update(None, &Rope::from_str(text), None);
+        hl.styles(&(0..text.len()), HighlightTheme::default_dark().as_ref())
+    }
+
+    /// Build a pane with the side-specific decoration colours.
+    fn pane(text: &str, side: Side, chunks: &[Chunk], syntax: Vec<(Range<usize>, HighlightStyle)>) -> Pane {
+        let (tint, char_tint, gutter) = match side {
+            Side::A => (rgba(0xf8514922).into(), rgba(0xf8514955).into(), rgb(0xf85149).into()),
+            Side::B => (rgba(0x3fb95022).into(), rgba(0x3fb95055).into(), rgb(0x3fb950).into()),
+        };
+        Pane::new(text, side, chunks, syntax, tint, char_tint, gutter)
     }
 
     /// Record the current diff into history (dedupe merges rapid edits).
@@ -190,20 +237,24 @@ impl DiffView {
         );
     }
 
-    /// (Re)build the syntax + decoration panes using the model's currently
-    /// detected language.
-    fn build_panes(model: &DiffModel) -> (Pane, Pane) {
-        let chunks = model.chunks();
-        let language = model.language();
-        let pane_a = Pane::build(model.text(Side::A), Side::A, chunks, language, rgba(0xf8514922).into(), rgba(0xf8514955).into(), rgb(0xf85149).into());
-        let pane_b = Pane::build(model.text(Side::B), Side::B, chunks, language, rgba(0x3fb95022).into(), rgba(0x3fb95055).into(), rgb(0x3fb950).into());
-        (pane_a, pane_b)
-    }
-
+    /// Rebuild panes after an edit, reusing the cached highlighters (recreating
+    /// them only if the detected language changed).
     fn rebuild_panes(&mut self) {
-        let (a, b) = Self::build_panes(&self.model);
-        self.pane_a = a;
-        self.pane_b = b;
+        let lang = self.model.language();
+        if lang != self.hl_lang {
+            self.hl_a = SyntaxHighlighter::new(lang);
+            self.hl_b = SyntaxHighlighter::new(lang);
+            self.hl_lang = lang.to_string();
+        }
+        // Own the borrows so model (immutable) and the highlighters (mutable)
+        // don't overlap.
+        let a_text = self.model.text(Side::A).to_string();
+        let b_text = self.model.text(Side::B).to_string();
+        let chunks = self.model.chunks().to_vec();
+        let syntax_a = Self::highlight(&mut self.hl_a, &a_text);
+        let syntax_b = Self::highlight(&mut self.hl_b, &b_text);
+        self.pane_a = Self::pane(&a_text, Side::A, &chunks, syntax_a);
+        self.pane_b = Self::pane(&b_text, Side::B, &chunks, syntax_b);
     }
 
     fn on_key(&mut self, e: &KeyDownEvent, _window: &mut Window, cx: &mut Context<Self>) {
@@ -258,26 +309,16 @@ impl DiffView {
 
     fn render_row(&self, ix: usize, active: Side, cursor_line: usize) -> Div {
         let r = self.model.rows()[ix];
-        // Draw the caret only on the active (focused) side's cursor line.
-        let caret_a = match r.a {
-            Some(ai) if active == Side::A && ai as usize == cursor_line => {
-                Some(self.model.cursor(Side::A) - self.pane_a.line_ranges[ai as usize].start)
-            }
-            _ => None,
-        };
-        let caret_b = match r.b {
-            Some(bi) if active == Side::B && bi as usize == cursor_line => {
-                Some(self.model.cursor(Side::B) - self.pane_b.line_ranges[bi as usize].start)
-            }
-            _ => None,
-        };
+        // Highlight the active side's cursor line (line-level; char caret TBD).
+        let cursor_a = active == Side::A && r.a == Some(cursor_line as u32);
+        let cursor_b = active == Side::B && r.b == Some(cursor_line as u32);
         div()
             .flex()
             .flex_row()
             .w_full()
-            .child(self.pane_a.cell(r.a, r.changed, caret_a))
+            .child(self.pane_a.cell(r.a, r.changed, cursor_a))
             .child(div().w(px(1.0)).flex_none().bg(rgb(0x333333)))
-            .child(self.pane_b.cell(r.b, r.changed, caret_b))
+            .child(self.pane_b.cell(r.b, r.changed, cursor_b))
     }
 
     /// Aligned-row index the active cursor currently sits on (for scroll-to).
