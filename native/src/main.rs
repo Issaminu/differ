@@ -8,6 +8,8 @@
 mod diff_view;
 mod history_store;
 
+use std::borrow::Cow;
+
 use diff_view::DiffView;
 use gpui::{
     px, size, App, AppContext, Bounds, WindowBounds, WindowOptions,
@@ -22,6 +24,14 @@ fn main() {
     let app = gpui_platform::application();
     app.run(|cx: &mut App| {
         gpui_component::init(cx);
+        // Bundle plain JetBrains Mono so it resolves by name regardless of what
+        // the user has installed (they may only have the Nerd Font variant).
+        let _ = cx.text_system().add_fonts(vec![
+            Cow::Borrowed(&include_bytes!("../assets/fonts/JetBrainsMono-Regular.ttf")[..]),
+            Cow::Borrowed(&include_bytes!("../assets/fonts/JetBrainsMono-Bold.ttf")[..]),
+            Cow::Borrowed(&include_bytes!("../assets/fonts/JetBrainsMono-Italic.ttf")[..]),
+            Cow::Borrowed(&include_bytes!("../assets/fonts/JetBrainsMono-BoldItalic.ttf")[..]),
+        ]);
         cx.activate(true);
 
         let bounds = Bounds::centered(None, size(px(900.0), px(600.0)), cx);
