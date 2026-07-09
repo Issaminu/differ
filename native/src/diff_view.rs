@@ -206,9 +206,9 @@ impl Render for DiffView {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let (added, removed) = self.stats;
         let language = self.language;
-        let (bg, bar, border, fg, muted, secondary) = {
+        let (bg, bar, border, fg, muted, secondary, mono) = {
             let t = cx.theme();
-            (t.background, t.title_bar, t.border, t.foreground, t.muted_foreground, t.secondary)
+            (t.background, t.title_bar, t.border, t.foreground, t.muted_foreground, t.secondary, t.mono_font_family.clone())
         };
 
         let toolbar = div()
@@ -252,9 +252,9 @@ impl Render for DiffView {
             .flex()
             .flex_row()
             .flex_1()
-            .child(Input::new(&self.editor_a).bordered(false).flex_1().h_full().text_size(px(13.0)))
+            .child(Input::new(&self.editor_a).bordered(false).flex_1().h_full().text_size(px(13.0)).font_family(mono.clone()))
             .child(div().w(px(1.0)).flex_none().bg(border))
-            .child(Input::new(&self.editor_b).bordered(false).flex_1().h_full().text_size(px(13.0)));
+            .child(Input::new(&self.editor_b).bordered(false).flex_1().h_full().text_size(px(13.0)).font_family(mono));
 
         let body = div().flex().flex_col().flex_1().child(toolbar).child(editors);
         let mut root = div().flex().flex_row().size_full().bg(bg).child(body);

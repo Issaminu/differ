@@ -31,6 +31,11 @@ fn main() {
                 ..Default::default()
             },
             |window, cx| {
+                // Dark theme + JetBrains Mono for the editors (falls back to the
+                // system mono if JetBrains Mono isn't installed).
+                gpui_component::Theme::change(gpui_component::ThemeMode::Dark, Some(window), cx);
+                gpui_component::Theme::global_mut(cx).mono_font_family = "JetBrains Mono".into();
+
                 // gpui-component's editor requires the window's first layer to
                 // be a gpui_component::Root (it hosts theme + overlay layers).
                 let view = cx.new(|cx| DiffView::new(SAMPLE_A, SAMPLE_B, window, cx));
