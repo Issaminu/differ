@@ -1,296 +1,91 @@
-// The two-pane diff view — a thin gpui shell over the pure, headlessly-tested
-// `differ_core::model::DiffModel`. The model owns all editing + diff state; the
-// view forwards key events to it and renders its rows/decorations, layering
-// gpui-component's SyntaxHighlighter on top (the one gpui-dependent piece).
+// Two-pane diff view — pivoted onto gpui-component's real editor.
 //
-// The right pane (B, "new") is editable; left (A) is read-only for now. Cursor
-// is drawn as a stand-in glyph; click focuses (caret-by-click + A editing next).
-
-use std::ops::Range;
+// Each pane is an `InputState` code editor (cursor, selection, caret, IME,
+// syntax highlighting, scrolling, undo/redo all handled by it). We subscribe to
+// each editor's Change event and recompute the diff (via differ-core) to drive
+// the toolbar stats + language + history capture.
+//
+// NOTE: diff decorations (the red/green tints) are NOT drawn yet — InputState
+// has no decoration API, so they need a highlight overlay/fork (next
+// increment). This trades the tints (temporarily) for a real, non-crashing,
+// fully-editable editor.
 
 use crate::history_store;
 use differ_core::{
-    decorations::{build_decorations, Side},
-    history::History,
-    model::{DiffModel, KeyOutcome},
-    Chunk,
+    decorations::count_changed_lines, diff_with_changes, history::History, lang::detect_language,
 };
 use gpui::{
-    div, prelude::*, px, rgb, rgba, uniform_list, Context, Div, FocusHandle, HighlightStyle, Hsla,
-    KeyDownEvent, MouseButton, MouseDownEvent, PathPromptOptions, ScrollStrategy, SharedString,
-    Stateful, StyledText, UniformListScrollHandle, Window,
+    div, prelude::*, px, rgb, Context, Div, Entity, SharedString, Stateful, Subscription, Window,
 };
-use gpui_component::highlighter::{HighlightTheme, SyntaxHighlighter};
-use gpui_component::input::Rope;
-
-/// Per-side rendering data (syntax + decorations), rebuilt on every edit.
-struct Pane {
-    text: String,
-    line_ranges: Vec<Range<usize>>,
-    char_spans: Vec<(usize, usize)>,
-    syntax: Vec<(Range<usize>, HighlightStyle)>,
-    line_tint: Hsla,
-    char_tint: Hsla,
-    gutter_changed: Hsla,
-}
-
-impl Pane {
-    fn new(
-        text: &str,
-        side: Side,
-        chunks: &[Chunk],
-        syntax: Vec<(Range<usize>, HighlightStyle)>,
-        tint: Hsla,
-        char_tint: Hsla,
-        gutter: Hsla,
-    ) -> Self {
-        let deco = build_decorations(side, chunks, text);
-
-        let mut line_ranges = Vec::new();
-        let mut off = 0usize;
-        for line in text.split('\n') {
-            line_ranges.push(off..off + line.len());
-            off += line.len() + 1;
-        }
-
-        Self {
-            text: text.to_string(),
-            line_ranges,
-            char_spans: deco.changed_spans.into_iter().map(|(f, t)| (f as usize, t as usize)).collect(),
-            syntax,
-            line_tint: tint,
-            char_tint,
-            gutter_changed: gutter,
-        }
-    }
-
-    /// Compose syntax (fg) + diff char (bg) spans over line range `r` into
-    /// non-overlapping runs relative to the line start.
-    fn line_runs(&self, r: &Range<usize>) -> Vec<(Range<usize>, HighlightStyle)> {
-        let (ls, le) = (r.start, r.end);
-        let len = le - ls;
-        let content = &self.text[ls..le];
-
-        let syntax: Vec<(Range<usize>, Hsla)> = self
-            .syntax
-            .iter()
-            .filter_map(|(sr, s)| {
-                let a = sr.start.max(ls);
-                let b = sr.end.min(le);
-                let color = s.color?;
-                (a < b).then(|| (a - ls..b - ls, color))
-            })
-            .collect();
-        let diff: Vec<Range<usize>> = self
-            .char_spans
-            .iter()
-            .filter_map(|&(f, t)| {
-                let a = f.max(ls);
-                let b = t.min(le);
-                (a < b).then(|| a - ls..b - ls)
-            })
-            .collect();
-
-        let mut bounds: Vec<usize> = vec![0, len];
-        for r in &syntax {
-            bounds.push(r.0.start);
-            bounds.push(r.0.end);
-        }
-        for r in &diff {
-            bounds.push(r.start);
-            bounds.push(r.end);
-        }
-        bounds.retain(|&b| b <= len);
-        // Snap every boundary down to a char boundary of the line content —
-        // the byte-level diff can land a span edge inside a multibyte char,
-        // which would make gpui's StyledText abort on a non-char-boundary run.
-        for b in bounds.iter_mut() {
-            while *b > 0 && *b < len && !content.is_char_boundary(*b) {
-                *b -= 1;
-            }
-        }
-        bounds.sort_unstable();
-        bounds.dedup();
-
-        let mut runs = Vec::new();
-        for w in bounds.windows(2) {
-            let (p0, p1) = (w[0], w[1]);
-            if p0 >= p1 {
-                continue;
-            }
-            let fg = syntax.iter().find(|(r, _)| r.start <= p0 && p0 < r.end).map(|(_, c)| *c);
-            let is_diff = diff.iter().any(|r| r.start <= p0 && p0 < r.end);
-            if fg.is_some() || is_diff {
-                runs.push((
-                    p0..p1,
-                    HighlightStyle {
-                        color: fg,
-                        background_color: is_diff.then_some(self.char_tint),
-                        ..Default::default()
-                    },
-                ));
-            }
-        }
-        runs
-    }
-
-    fn cell(&self, line: Option<u32>, changed: bool, cursor_line: bool) -> Div {
-        match line {
-            Some(i) => {
-                let r = self.line_ranges[i as usize].clone();
-                // NOTE: no caret glyph is inserted into the text — doing so
-                // shifted the syntax-run byte offsets off char boundaries and
-                // crashed gpui. The active line is indicated by a background +
-                // brighter gutter instead; a real caret needs text geometry
-                // (deferred). runs are computed on the unmodified line, so all
-                // run boundaries stay on char boundaries.
-                let runs = self.line_runs(&r);
-                let content = self.text[r].to_string();
-                let text = StyledText::new(content).with_highlights(runs);
-                let gutter_color = if cursor_line {
-                    rgb(0xffffff).into()
-                } else if changed {
-                    self.gutter_changed
-                } else {
-                    rgb(0x6b7280).into()
-                };
-                let mut cell = div()
-                    .flex()
-                    .flex_row()
-                    .flex_1()
-                    .child(div().w(px(44.0)).flex_none().text_color(gutter_color).child(format!("{:>4} ", i + 1)))
-                    .child(div().flex_1().child(text));
-                if cursor_line {
-                    cell = cell.bg(rgb(0x2d3139));
-                } else if changed {
-                    cell = cell.bg(self.line_tint);
-                }
-                cell
-            }
-            None => div().flex_1().bg(rgb(0x161616)),
-        }
-    }
-}
+use gpui_component::input::{Input, InputEvent, InputState};
 
 pub struct DiffView {
-    model: DiffModel,
-    pane_a: Pane,
-    pane_b: Pane,
-    // Cached tree-sitter highlighters, reused across keystrokes — recreated
-    // only when the detected language changes. Recreating per keystroke
-    // recompiled the highlight query each time and made typing lag badly.
-    hl_a: SyntaxHighlighter,
-    hl_b: SyntaxHighlighter,
-    hl_lang: String,
-    focus: FocusHandle,
-    scroll_handle: UniformListScrollHandle,
+    editor_a: Entity<InputState>,
+    editor_b: Entity<InputState>,
+    language: &'static str,
+    /// (added lines on B, removed lines on A).
+    stats: (usize, usize),
     history: History,
     history_open: bool,
+    _subs: Vec<Subscription>,
 }
 
 impl DiffView {
-    pub fn new(a: &str, b: &str, cx: &mut Context<Self>) -> Self {
-        let model = DiffModel::new(a, b);
-        let lang = model.language();
-        let mut hl_a = SyntaxHighlighter::new(lang);
-        let mut hl_b = SyntaxHighlighter::new(lang);
-        let syntax_a = Self::highlight(&mut hl_a, model.text(Side::A));
-        let syntax_b = Self::highlight(&mut hl_b, model.text(Side::B));
-        let pane_a = Self::pane(model.text(Side::A), Side::A, model.chunks(), syntax_a);
-        let pane_b = Self::pane(model.text(Side::B), Side::B, model.chunks(), syntax_b);
-        Self {
-            model,
-            pane_a,
-            pane_b,
-            hl_a,
-            hl_b,
-            hl_lang: lang.to_string(),
-            focus: cx.focus_handle(),
-            scroll_handle: UniformListScrollHandle::new(),
+    pub fn new(a: &str, b: &str, window: &mut Window, cx: &mut Context<Self>) -> Self {
+        let editor_a =
+            cx.new(|cx| InputState::new(window, cx).code_editor("text").line_number(true).default_value(a));
+        let editor_b =
+            cx.new(|cx| InputState::new(window, cx).code_editor("text").line_number(true).default_value(b));
+
+        // Re-diff whenever either editor's content changes.
+        let on_change = |this: &mut Self, _e: Entity<InputState>, event: &InputEvent, cx: &mut Context<Self>| {
+            if matches!(event, InputEvent::Change) {
+                this.recompute(cx);
+                cx.notify();
+            }
+        };
+        let subs = vec![
+            cx.subscribe(&editor_a, on_change),
+            cx.subscribe(&editor_b, on_change),
+        ];
+
+        let mut view = Self {
+            editor_a,
+            editor_b,
+            language: "text",
+            stats: (0, 0),
             history: history_store::load(),
             history_open: false,
-        }
-    }
-
-    /// Run a cached highlighter over `text` and return its styled spans.
-    fn highlight(hl: &mut SyntaxHighlighter, text: &str) -> Vec<(Range<usize>, HighlightStyle)> {
-        hl.update(None, &Rope::from_str(text), None);
-        hl.styles(&(0..text.len()), HighlightTheme::default_dark().as_ref())
-    }
-
-    /// Build a pane with the side-specific decoration colours.
-    fn pane(text: &str, side: Side, chunks: &[Chunk], syntax: Vec<(Range<usize>, HighlightStyle)>) -> Pane {
-        let (tint, char_tint, gutter) = match side {
-            Side::A => (rgba(0xf8514922).into(), rgba(0xf8514955).into(), rgb(0xf85149).into()),
-            Side::B => (rgba(0x3fb95022).into(), rgba(0x3fb95055).into(), rgb(0x3fb950).into()),
+            _subs: subs,
         };
-        Pane::new(text, side, chunks, syntax, tint, char_tint, gutter)
+        view.recompute(cx);
+        view
     }
 
-    /// Record the current diff into history (dedupe merges rapid edits).
-    fn capture(&mut self) {
-        self.history.capture(
-            self.model.text(Side::A),
-            self.model.text(Side::B),
-            self.model.language(),
-            history_store::now_ms(),
-        );
-    }
+    /// Recompute diff stats + language from the two editors' current contents,
+    /// push the language to the editors' highlighters, and capture to history.
+    fn recompute(&mut self, cx: &mut Context<Self>) {
+        let a = self.editor_a.read(cx).value().to_string();
+        let b = self.editor_b.read(cx).value().to_string();
 
-    /// Rebuild panes after an edit, reusing the cached highlighters (recreating
-    /// them only if the detected language changed).
-    fn rebuild_panes(&mut self) {
-        let lang = self.model.language();
-        if lang != self.hl_lang {
-            self.hl_a = SyntaxHighlighter::new(lang);
-            self.hl_b = SyntaxHighlighter::new(lang);
-            self.hl_lang = lang.to_string();
+        let chunks = diff_with_changes(&a, &b);
+        let mut added = 0;
+        let mut removed = 0;
+        for c in &chunks {
+            removed += count_changed_lines(&a, c.from_a, c.end_a) as usize;
+            added += count_changed_lines(&b, c.from_b, c.end_b) as usize;
         }
-        // Own the borrows so model (immutable) and the highlighters (mutable)
-        // don't overlap.
-        let a_text = self.model.text(Side::A).to_string();
-        let b_text = self.model.text(Side::B).to_string();
-        let chunks = self.model.chunks().to_vec();
-        let syntax_a = Self::highlight(&mut self.hl_a, &a_text);
-        let syntax_b = Self::highlight(&mut self.hl_b, &b_text);
-        self.pane_a = Self::pane(&a_text, Side::A, &chunks, syntax_a);
-        self.pane_b = Self::pane(&b_text, Side::B, &chunks, syntax_b);
-    }
+        self.stats = (added, removed);
 
-    fn on_key(&mut self, e: &KeyDownEvent, _window: &mut Window, cx: &mut Context<Self>) {
-        let ks = &e.keystroke;
-
-        if ks.modifiers.platform && ks.key == "v" {
-            if let Some(text) = cx.read_from_clipboard().and_then(|c| c.text()) {
-                self.model.paste(&text);
-                self.rebuild_panes();
-                self.capture();
-                cx.notify();
-            }
-            return;
-        }
-        // Cmd+Z undo, Cmd+Shift+Z redo.
-        if ks.modifiers.platform && ks.key == "z" {
-            let changed = if ks.modifiers.shift { self.model.redo() } else { self.model.undo() };
-            if changed {
-                self.rebuild_panes();
-                cx.notify();
-            }
-            return;
-        }
-        if ks.modifiers.platform || ks.modifiers.control {
-            return;
+        let sample = if b.len() >= a.len() { &b } else { &a };
+        let lang = detect_language(sample);
+        if lang != self.language {
+            self.language = lang;
+            self.editor_a.update(cx, |ed, cx| ed.set_highlighter(lang, cx));
+            self.editor_b.update(cx, |ed, cx| ed.set_highlighter(lang, cx));
         }
 
-        match self.model.apply_key(&ks.key, ks.key_char.as_deref()) {
-            KeyOutcome::Edited => {
-                self.rebuild_panes();
-                self.capture();
-                cx.notify();
-            }
-            KeyOutcome::Moved => cx.notify(),
-            KeyOutcome::Ignored => {}
-        }
+        self.history.capture(&a, &b, lang, history_store::now_ms());
     }
 
     /// A styled toolbar button (caller attaches the click handler).
@@ -307,31 +102,8 @@ impl DiffView {
             .child(label.to_string())
     }
 
-    fn render_row(&self, ix: usize, active: Side, cursor_line: usize) -> Div {
-        let r = self.model.rows()[ix];
-        // Highlight the active side's cursor line (line-level; char caret TBD).
-        let cursor_a = active == Side::A && r.a == Some(cursor_line as u32);
-        let cursor_b = active == Side::B && r.b == Some(cursor_line as u32);
-        div()
-            .flex()
-            .flex_row()
-            .w_full()
-            .child(self.pane_a.cell(r.a, r.changed, cursor_a))
-            .child(div().w(px(1.0)).flex_none().bg(rgb(0x333333)))
-            .child(self.pane_b.cell(r.b, r.changed, cursor_b))
-    }
-
-    /// Aligned-row index the active cursor currently sits on (for scroll-to).
-    fn cursor_row_index(&self) -> Option<usize> {
-        let active = self.model.active();
-        let line = self.model.cursor_line(active) as u32;
-        self.model.rows().iter().position(|r| match active {
-            Side::A => r.a == Some(line),
-            Side::B => r.b == Some(line),
-        })
-    }
-
-    /// Right-side history panel: recent captures, click to restore.
+    /// Right-side history panel: recent captures, click to restore into both
+    /// editors.
     fn render_drawer(&self, cx: &mut Context<Self>) -> Div {
         let rows: Vec<Stateful<Div>> = self
             .history
@@ -348,10 +120,12 @@ impl DiffView {
                     .px_3()
                     .py_2()
                     .cursor_pointer()
-                    .on_click(cx.listener(move |this, _, _window, cx| {
-                        this.model.set_docs(orig.clone(), modif.clone());
-                        this.rebuild_panes();
+                    .on_click(cx.listener(move |this, _, window, cx| {
+                        let (o, m) = (orig.clone(), modif.clone());
+                        this.editor_a.update(cx, |ed, cx| ed.set_value(o, window, cx));
+                        this.editor_b.update(cx, |ed, cx| ed.set_value(m, window, cx));
                         this.history_open = false;
+                        this.recompute(cx); // set_value suppresses Change, so re-diff manually
                         cx.notify();
                     }))
                     .child(div().text_color(rgb(0xe6e6e6)).child(preview))
@@ -373,10 +147,8 @@ impl DiffView {
 
 impl Render for DiffView {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let active = self.model.active();
-        let cursor_line = self.model.cursor_line(active);
-        let (added, removed) = self.model.stats();
-        let language = self.model.language();
+        let (added, removed) = self.stats;
+        let language = self.language;
 
         let toolbar = div()
             .flex()
@@ -392,69 +164,20 @@ impl Render for DiffView {
             .child(div().child(format!("Language: {language}")))
             .child(div().text_color(rgb(0x3fb950)).child(format!("+{added}")))
             .child(div().text_color(rgb(0xf85149)).child(format!("−{removed}")))
-            .child(Self::button("btn-prev", "◀ Change").on_click(cx.listener(|this, _, _window, cx| {
-                if this.model.goto_prev_change() {
-                    if let Some(ix) = this.cursor_row_index() {
-                        this.scroll_handle.scroll_to_item(ix, ScrollStrategy::Center);
-                    }
-                    cx.notify();
-                }
-            })))
-            .child(Self::button("btn-next", "Change ▶").on_click(cx.listener(|this, _, _window, cx| {
-                if this.model.goto_next_change() {
-                    if let Some(ix) = this.cursor_row_index() {
-                        this.scroll_handle.scroll_to_item(ix, ScrollStrategy::Center);
-                    }
-                    cx.notify();
-                }
-            })))
             .child(div().flex_1()) // spacer
-            .child(Self::button("btn-open", "Open").on_click(cx.listener(|this, _, _window, cx| {
-                // Load a file into the active side via the native picker (async).
-                let side = this.model.active();
-                let rx = cx.prompt_for_paths(PathPromptOptions {
-                    files: true,
-                    directories: false,
-                    multiple: false,
-                    prompt: None,
-                });
-                cx.spawn(async move |view, cx| {
-                    if let Ok(Ok(Some(paths))) = rx.await {
-                        if let Some(path) = paths.into_iter().next() {
-                            if let Ok(content) = std::fs::read_to_string(&path) {
-                                let _ = view.update(cx, |this, cx| {
-                                    this.model.set_side(side, content);
-                                    this.rebuild_panes();
-                                    this.capture();
-                                    cx.notify();
-                                });
-                            }
-                        }
-                    }
-                })
-                .detach();
-            })))
-            .child(Self::button("btn-swap", "Swap").on_click(cx.listener(|this, _, _window, cx| {
-                this.model.swap();
-                this.rebuild_panes();
+            .child(Self::button("btn-swap", "Swap").on_click(cx.listener(|this, _, window, cx| {
+                let a = this.editor_a.read(cx).value();
+                let b = this.editor_b.read(cx).value();
+                this.editor_a.update(cx, |ed, cx| ed.set_value(b, window, cx));
+                this.editor_b.update(cx, |ed, cx| ed.set_value(a, window, cx));
+                this.recompute(cx);
                 cx.notify();
             })))
-            .child(Self::button("btn-clear", "Clear").on_click(cx.listener(|this, _, _window, cx| {
-                this.model.clear();
-                this.rebuild_panes();
+            .child(Self::button("btn-clear", "Clear").on_click(cx.listener(|this, _, window, cx| {
+                this.editor_a.update(cx, |ed, cx| ed.set_value("", window, cx));
+                this.editor_b.update(cx, |ed, cx| ed.set_value("", window, cx));
+                this.recompute(cx);
                 cx.notify();
-            })))
-            .child(Self::button("btn-undo", "Undo").on_click(cx.listener(|this, _, _window, cx| {
-                if this.model.undo() {
-                    this.rebuild_panes();
-                    cx.notify();
-                }
-            })))
-            .child(Self::button("btn-redo", "Redo").on_click(cx.listener(|this, _, _window, cx| {
-                if this.model.redo() {
-                    this.rebuild_panes();
-                    cx.notify();
-                }
             })))
             .child(Self::button("btn-history", "History").on_click(cx.listener(|this, _, _window, cx| {
                 this.history_open = !this.history_open;
@@ -462,33 +185,15 @@ impl Render for DiffView {
                 cx.notify();
             })));
 
-        let list = uniform_list(
-            "diff-rows",
-            self.model.rows().len(),
-            cx.processor(move |this, range: Range<usize>, _window, _cx| {
-                range.map(|ix| this.render_row(ix, active, cursor_line)).collect::<Vec<_>>()
-            }),
-        )
-        .track_focus(&self.focus)
-        .on_key_down(cx.listener(Self::on_key))
-        .on_mouse_down(
-            MouseButton::Left,
-            cx.listener(|this, ev: &MouseDownEvent, window, cx| {
-                // Pick the clicked side by comparing the click x to the view's
-                // horizontal midpoint (the panes split at center).
-                let mid = window.viewport_size().width / 2.0;
-                let side = if ev.position.x < mid { Side::A } else { Side::B };
-                this.model.set_active(side);
-                this.focus.focus(window, cx);
-                cx.notify();
-            }),
-        )
-        .track_scroll(&self.scroll_handle)
-        .flex_1()
-        .text_color(rgb(0xe6e6e6))
-        .text_size(px(13.0));
+        let editors = div()
+            .flex()
+            .flex_row()
+            .flex_1()
+            .child(Input::new(&self.editor_a).bordered(false).flex_1().h_full().text_size(px(13.0)))
+            .child(div().w(px(1.0)).flex_none().bg(rgb(0x333333)))
+            .child(Input::new(&self.editor_b).bordered(false).flex_1().h_full().text_size(px(13.0)));
 
-        let body = div().flex().flex_col().flex_1().child(toolbar).child(list);
+        let body = div().flex().flex_col().flex_1().child(toolbar).child(editors);
         let mut root = div().flex().flex_row().size_full().bg(rgb(0x1e1e1e)).child(body);
         if self.history_open {
             root = root.child(self.render_drawer(cx));

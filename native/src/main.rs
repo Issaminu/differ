@@ -30,7 +30,13 @@ fn main() {
                 window_bounds: Some(WindowBounds::Windowed(bounds)),
                 ..Default::default()
             },
-            |_window, cx| cx.new(|cx| DiffView::new(SAMPLE_A, SAMPLE_B, cx)),
+            |window, cx| {
+                // gpui-component's editor requires the window's first layer to
+                // be a gpui_component::Root (it hosts theme + overlay layers).
+                let view = cx.new(|cx| DiffView::new(SAMPLE_A, SAMPLE_B, window, cx));
+                let root_view: gpui::AnyView = view.into();
+                cx.new(|cx| gpui_component::Root::new(root_view, window, cx))
+            },
         )
         .expect("failed to open window");
     });
