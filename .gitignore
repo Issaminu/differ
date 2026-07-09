@@ -45,3 +45,6 @@ src-tauri/resources/macos/assetcatalog_generated_info.plist
 .claude/settings.local.json
 .claude/launch.json
 .env.*
+
+# macOS app bundle output
+/dist/
