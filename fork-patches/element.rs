@@ -2071,7 +2071,8 @@ impl Element for TextElement {
                 line_y,
             );
 
-            // Paint the actual line
+            // Paint the actual line (LineLayout::paint now also paints run
+            // backgrounds — e.g. Differ's diff tints).
             _ = line.paint(
                 p,
                 line_height,

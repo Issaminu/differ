@@ -29,6 +29,7 @@ rm -rf "$DEST/.git"   # strip the embedded checkout repo
 echo "Applying fork-patches/ overrides"
 cp "$REPO/fork-patches/state.rs"             "$DEST/crates/ui/src/input/state.rs"
 cp "$REPO/fork-patches/element.rs"           "$DEST/crates/ui/src/input/element.rs"
+cp "$REPO/fork-patches/text_wrapper.rs"      "$DEST/crates/ui/src/input/display_map/text_wrapper.rs"
 cp "$REPO/fork-patches/workspace-Cargo.toml" "$DEST/Cargo.toml"
 
 echo "Done. 'cargo build --manifest-path native/Cargo.toml' should now build against the fork."

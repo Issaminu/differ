@@ -15,6 +15,10 @@ change vs upstream `gpui-component` **rev `2587914`**:
   - in `highlight_lines`, composes `diff_highlights_for_range` as a base layer
     via `gpui::combine_highlights` (they set only `background_color`, so they
     layer under the syntax foreground colours)
+- `text_wrapper.rs` → `crates/ui/src/input/display_map/text_wrapper.rs`
+  - `LineLayout::paint` now calls `ShapedLine::paint_background` before
+    `::paint` — gpui's `paint()` draws glyphs only, NOT run backgrounds, so
+    without this the diff tints (run `background_color`) never render
 - `workspace-Cargo.toml` → `Cargo.toml`
   - pins the zed/gpui deps to the exact rev `native/` uses, so gpui resolves to
     a single version (a skew breaks `Entity<InputState>` across the boundary)
