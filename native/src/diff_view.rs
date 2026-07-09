@@ -15,7 +15,7 @@ use std::time::Duration;
 use crate::history_store;
 use differ_core::{
     history::History,
-    pipeline::{compute, ChangedLine, DiffCompute},
+    pipeline::{compute, DiffCompute, Tint, TintKind},
 };
 use gpui::{
     div, prelude::*, px, rgb, rgba, Context, Div, Entity, HighlightStyle, Hsla, SharedString,
@@ -26,10 +26,10 @@ use gpui_component::ActiveTheme;
 
 const ADDED: u32 = 0x3fb950;
 const REMOVED: u32 = 0xf85149;
-// In-editor tint backgrounds (behind the text) — a touch stronger than an
-// overlay since they're composited under the glyphs, not over them.
-const ADDED_TINT: u32 = 0x3fb95040;
-const REMOVED_TINT: u32 = 0xf8514940;
+// Alpha for the two tint intensities (behind the glyphs): a faint wash over the
+// whole changed line, a stronger one over the exact changed characters.
+const LINE_ALPHA: u32 = 0x2c;
+const CHAR_ALPHA: u32 = 0x66;
 
 /// Coalesce keystroke bursts; the diff runs on a background thread so typing
 /// never blocks — this just avoids redundant background work.
@@ -130,8 +130,8 @@ impl DiffView {
             self.editor_b.update(cx, |ed, cx| ed.set_highlighter(comp.language, cx));
         }
 
-        let ha = to_highlights(&comp.changed_a, rgba(REMOVED_TINT).into());
-        let hb = to_highlights(&comp.changed_b, rgba(ADDED_TINT).into());
+        let ha = to_highlights(&comp.tints_a, REMOVED);
+        let hb = to_highlights(&comp.tints_b, ADDED);
         self.editor_a.update(cx, |ed, cx| ed.set_diff_highlights(ha, cx));
         self.editor_b.update(cx, |ed, cx| ed.set_diff_highlights(hb, cx));
 
@@ -190,14 +190,21 @@ impl DiffView {
     }
 }
 
-/// Map changed lines to editor highlight spans (a background tint per range).
-fn to_highlights(changed: &[ChangedLine], tint: Hsla) -> Vec<(Range<usize>, HighlightStyle)> {
-    changed
+/// Map tint spans to editor highlight styles. `base` is a 0xRRGGBB colour;
+/// Line spans get a faint wash, Char spans a stronger one.
+fn to_highlights(tints: &[Tint], base: u32) -> Vec<(Range<usize>, HighlightStyle)> {
+    tints
         .iter()
-        .filter_map(|&(_, s, e)| {
-            (s < e).then(|| {
-                (s as usize..e as usize, HighlightStyle { background_color: Some(tint), ..Default::default() })
-            })
+        .filter_map(|(r, kind)| {
+            if r.start >= r.end {
+                return None;
+            }
+            let alpha = match kind {
+                TintKind::Line => LINE_ALPHA,
+                TintKind::Char => CHAR_ALPHA,
+            };
+            let color: Hsla = rgba((base << 8) | alpha).into();
+            Some((r.clone(), HighlightStyle { background_color: Some(color), ..Default::default() }))
         })
         .collect()
 }
