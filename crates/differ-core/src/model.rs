@@ -167,6 +167,23 @@ impl DiffModel {
         self.recompute();
     }
 
+    /// Replace one side's document (e.g. loading a file into it). Undoable.
+    pub fn set_side(&mut self, side: Side, text: impl Into<String>) {
+        self.record();
+        let t = text.into();
+        match side {
+            Side::A => {
+                self.cursor_a = t.len();
+                self.a = t;
+            }
+            Side::B => {
+                self.cursor_b = t.len();
+                self.b = t;
+            }
+        }
+        self.recompute();
+    }
+
     /// Replace both documents (e.g. restoring a history entry). Undoable.
     pub fn set_docs(&mut self, a: impl Into<String>, b: impl Into<String>) {
         self.record();
@@ -478,6 +495,16 @@ mod tests {
         // No-diff => zero.
         m = DiffModel::new("same\n", "same\n");
         assert_eq!(m.stats(), (0, 0));
+    }
+
+    #[test]
+    fn set_side_replaces_only_one_side() {
+        let mut m = DiffModel::new("a\n", "a\n");
+        m.set_side(Side::A, "loaded from file\n");
+        assert_eq!(m.text(Side::A), "loaded from file\n");
+        assert_eq!(m.text(Side::B), "a\n");
+        assert!(!m.chunks().is_empty());
+        assert_rows_valid(&m);
     }
 
     #[test]

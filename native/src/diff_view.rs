@@ -17,8 +17,8 @@ use differ_core::{
 };
 use gpui::{
     div, prelude::*, px, rgb, rgba, uniform_list, Context, Div, FocusHandle, HighlightStyle, Hsla,
-    KeyDownEvent, MouseButton, MouseDownEvent, ScrollStrategy, SharedString, Stateful, StyledText,
-    UniformListScrollHandle, Window,
+    KeyDownEvent, MouseButton, MouseDownEvent, PathPromptOptions, ScrollStrategy, SharedString,
+    Stateful, StyledText, UniformListScrollHandle, Window,
 };
 use gpui_component::highlighter::{HighlightTheme, SyntaxHighlighter};
 use gpui_component::input::Rope;
@@ -368,6 +368,31 @@ impl Render for DiffView {
                 }
             })))
             .child(div().flex_1()) // spacer
+            .child(Self::button("btn-open", "Open").on_click(cx.listener(|this, _, _window, cx| {
+                // Load a file into the active side via the native picker (async).
+                let side = this.model.active();
+                let rx = cx.prompt_for_paths(PathPromptOptions {
+                    files: true,
+                    directories: false,
+                    multiple: false,
+                    prompt: None,
+                });
+                cx.spawn(async move |view, cx| {
+                    if let Ok(Ok(Some(paths))) = rx.await {
+                        if let Some(path) = paths.into_iter().next() {
+                            if let Ok(content) = std::fs::read_to_string(&path) {
+                                let _ = view.update(cx, |this, cx| {
+                                    this.model.set_side(side, content);
+                                    this.rebuild_panes();
+                                    this.capture();
+                                    cx.notify();
+                                });
+                            }
+                        }
+                    }
+                })
+                .detach();
+            })))
             .child(Self::button("btn-swap", "Swap").on_click(cx.listener(|this, _, _window, cx| {
                 this.model.swap();
                 this.rebuild_panes();
