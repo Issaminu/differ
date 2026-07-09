@@ -18,8 +18,8 @@ use differ_core::{
     pipeline::{compute, DiffCompute, Tint, TintKind},
 };
 use gpui::{
-    div, prelude::*, px, rgb, rgba, Context, Div, Entity, HighlightStyle, Hsla, SharedString,
-    Stateful, Subscription, Window,
+    div, point, prelude::*, px, rgb, rgba, Context, Div, Entity, HighlightStyle, Hsla, Pixels,
+    Point, SharedString, Stateful, Subscription, Window,
 };
 use gpui_component::input::{Input, InputEvent, InputState};
 use gpui_component::ActiveTheme;
@@ -41,6 +41,15 @@ pub struct DiffView {
     language: &'static str,
     stats: (usize, usize),
     recompute_gen: u64,
+    /// Line index of each change per side (aligned by index) + current cursor.
+    changes_a: Vec<u32>,
+    changes_b: Vec<u32>,
+    current_change: usize,
+    /// Vertical scroll lock between the two panes + its poll bookkeeping.
+    scroll_lock: bool,
+    poll_active: bool,
+    last_scroll_a: Point<Pixels>,
+    last_scroll_b: Point<Pixels>,
     history: History,
     history_open: bool,
     _subs: Vec<Subscription>,
@@ -73,6 +82,13 @@ impl DiffView {
             language: "text",
             stats: (0, 0),
             recompute_gen: 0,
+            changes_a: Vec::new(),
+            changes_b: Vec::new(),
+            current_change: 0,
+            scroll_lock: false,
+            poll_active: false,
+            last_scroll_a: Point::default(),
+            last_scroll_b: Point::default(),
             history: history_store::load(),
             history_open: false,
             _subs: subs,
@@ -123,6 +139,11 @@ impl DiffView {
     /// Apply a computed diff: stats, language, in-editor tints, history.
     fn apply_compute(&mut self, comp: DiffCompute, a: &str, b: &str, cx: &mut Context<Self>) {
         self.stats = (comp.added, comp.removed);
+        self.changes_a = comp.changes_a;
+        self.changes_b = comp.changes_b;
+        if self.current_change >= self.changes_b.len() {
+            self.current_change = 0;
+        }
 
         if comp.language != self.language {
             self.language = comp.language;
@@ -137,6 +158,61 @@ impl DiffView {
 
         self.history.capture(a, b, comp.language, history_store::now_ms());
         cx.notify();
+    }
+
+    /// Scroll `editor` so `line` sits a few rows below the top.
+    fn scroll_editor_to_line(editor: &Entity<InputState>, line: u32, cx: &mut Context<Self>) {
+        let lh = editor.read(cx).line_height().unwrap_or(px(18.0));
+        let target = line.saturating_sub(3) as f32;
+        editor.update(cx, |ed, cx| ed.set_scroll_offset(point(px(0.0), -(lh * target)), cx));
+    }
+
+    /// Jump to the next (delta=+1) or previous (delta=-1) change, scrolling both
+    /// panes to that change (aligned by change index).
+    fn goto_change(&mut self, delta: i32, cx: &mut Context<Self>) {
+        let n = self.changes_b.len().min(self.changes_a.len());
+        if n == 0 {
+            return;
+        }
+        self.current_change = (self.current_change as i32 + delta).rem_euclid(n as i32) as usize;
+        let i = self.current_change;
+        let (la, lb) = (self.changes_a[i], self.changes_b[i]);
+        Self::scroll_editor_to_line(&self.editor_a, la, cx);
+        Self::scroll_editor_to_line(&self.editor_b, lb, cx);
+        cx.notify();
+    }
+
+    /// Toggle vertical scroll lock; starts the sync poll if turning on.
+    fn toggle_scroll_lock(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.scroll_lock = !self.scroll_lock;
+        if self.scroll_lock && !self.poll_active {
+            self.poll_active = true;
+            self.last_scroll_a = self.editor_a.read(cx).scroll_offset();
+            self.last_scroll_b = self.editor_b.read(cx).scroll_offset();
+            cx.on_next_frame(window, Self::sync_scroll_tick);
+        }
+        cx.notify();
+    }
+
+    /// While locked, mirror whichever pane scrolled vertically onto the other.
+    /// Runs only while `scroll_lock` (stops rescheduling otherwise).
+    fn sync_scroll_tick(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if !self.scroll_lock {
+            self.poll_active = false;
+            return;
+        }
+        let sa = self.editor_a.read(cx).scroll_offset();
+        let sb = self.editor_b.read(cx).scroll_offset();
+        if sa.y != self.last_scroll_a.y {
+            let bx = sb.x;
+            self.editor_b.update(cx, |ed, cx| ed.set_scroll_offset(point(bx, sa.y), cx));
+        } else if sb.y != self.last_scroll_b.y {
+            let ax = sa.x;
+            self.editor_a.update(cx, |ed, cx| ed.set_scroll_offset(point(ax, sb.y), cx));
+        }
+        self.last_scroll_a = self.editor_a.read(cx).scroll_offset();
+        self.last_scroll_b = self.editor_b.read(cx).scroll_offset();
+        cx.on_next_frame(window, Self::sync_scroll_tick);
     }
 
     fn button(id: &'static str, label: &str, bg: Hsla, fg: Hsla) -> Stateful<Div> {
@@ -234,7 +310,10 @@ impl Render for DiffView {
             .child(div().child(format!("Language: {language}")))
             .child(div().text_color(rgb(ADDED)).child(format!("+{added}")))
             .child(div().text_color(rgb(REMOVED)).child(format!("−{removed}")))
+            .child(Self::button("btn-prev", "◀", secondary, fg).on_click(cx.listener(|this, _, _window, cx| this.goto_change(-1, cx))))
+            .child(Self::button("btn-next", "▶", secondary, fg).on_click(cx.listener(|this, _, _window, cx| this.goto_change(1, cx))))
             .child(div().flex_1())
+            .child(Self::button("btn-lock", if self.scroll_lock { "Sync ●" } else { "Sync ○" }, secondary, fg).on_click(cx.listener(|this, _, window, cx| this.toggle_scroll_lock(window, cx))))
             .child(Self::button("btn-swap", "Swap", secondary, fg).on_click(cx.listener(|this, _, window, cx| {
                 let a = this.editor_a.read(cx).value();
                 let b = this.editor_b.read(cx).value();

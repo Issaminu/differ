@@ -30,6 +30,31 @@ pub struct DiffCompute {
     pub language: &'static str,
     pub tints_a: Vec<Tint>,
     pub tints_b: Vec<Tint>,
+    /// Line index of each change's start, per side (index i is the same chunk on
+    /// both sides — used to jump both panes to the same change).
+    pub changes_a: Vec<u32>,
+    pub changes_b: Vec<u32>,
+}
+
+/// Line index of each chunk's start on `side` (single pass over the text).
+fn chunk_start_lines(text: &str, chunks: &[Chunk], side: Side) -> Vec<u32> {
+    let bytes = text.as_bytes();
+    let mut out = Vec::with_capacity(chunks.len());
+    let (mut pos, mut nl) = (0usize, 0u32);
+    for c in chunks {
+        let from = match side {
+            Side::A => c.from_a,
+            Side::B => c.from_b,
+        } as usize;
+        while pos < from && pos < bytes.len() {
+            if bytes[pos] == b'\n' {
+                nl += 1;
+            }
+            pos += 1;
+        }
+        out.push(nl);
+    }
+    out
 }
 
 /// Build non-overlapping tint spans for one side: each changed line is tinted
@@ -87,11 +112,13 @@ pub fn compute(a: &str, b: &str) -> DiffCompute {
 
     let tints_a = build_tints(a, &chunks, Side::A);
     let tints_b = build_tints(b, &chunks, Side::B);
+    let changes_a = chunk_start_lines(a, &chunks, Side::A);
+    let changes_b = chunk_start_lines(b, &chunks, Side::B);
 
     let sample = if b.len() >= a.len() { b } else { a };
     let language = detect_language(sample);
 
-    DiffCompute { added, removed, language, tints_a, tints_b }
+    DiffCompute { added, removed, language, tints_a, tints_b, changes_a, changes_b }
 }
 
 #[cfg(test)]
