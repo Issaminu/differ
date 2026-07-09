@@ -21,6 +21,10 @@ bench/fixtures/real/cache/
 crates/diff-wasm/target/
 crates/diff-wasm/pkg/
 
+## Rust build artifacts — native GPUI app + shared diff core
+crates/differ-core/target/
+native/target/
+
 ## Tauri / Rust
 src-tauri/target/
 src-tauri/gen/

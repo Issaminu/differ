@@ -1,0 +1,21 @@
+[package]
+name = "differ-core"
+version = "0.1.0"
+edition = "2021"
+description = "Native diff engine for Differ — imara-diff, ported off the WASM crate for in-process use by the GPUI frontend"
+license = "MIT"
+publish = false
+
+[dependencies]
+imara-diff = "0.2"
+
+[[bin]]
+name = "diff-bench"
+path = "src/bin/bench.rs"
+
+# Match crates/diff-wasm's release profile so native numbers are comparable to
+# the WASM build's tuning (opt-level 3, fat LTO, single codegen unit).
+[profile.release]
+opt-level = 3
+lto = "fat"
+codegen-units = 1

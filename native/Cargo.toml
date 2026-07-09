@@ -1,0 +1,17 @@
+[package]
+name = "differ-native"
+version = "0.1.0"
+edition = "2021"
+description = "Differ desktop app on GPUI (native, GPU-accelerated). Phase 0 spike."
+license = "MIT"
+publish = false
+
+# The sanctioned gpui-component dependency trio (see its README). gpui +
+# gpui_platform come from the zed repo at HEAD; gpui-component tracks the same
+# HEAD, so they resolve to one compatible gpui. differ-core is our in-process
+# diff engine (no WASM boundary).
+[dependencies]
+gpui = { git = "https://github.com/zed-industries/zed" }
+gpui_platform = { git = "https://github.com/zed-industries/zed", features = ["font-kit"] }
+gpui-component = { git = "https://github.com/longbridge/gpui-component" }
+differ-core = { path = "../crates/differ-core" }
