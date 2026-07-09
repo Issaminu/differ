@@ -9,8 +9,8 @@
 //   gpui_platform::application() -> run -> gpui_component::init(cx) -> open_window.
 
 use gpui::{
-    div, px, rgb, size, App, Bounds, Context, IntoElement, ParentElement, Render, Styled, Window,
-    WindowBounds, WindowOptions,
+    div, px, rgb, size, App, AppContext, Bounds, Context, IntoElement, ParentElement, Render,
+    Styled, Window, WindowBounds, WindowOptions,
 };
 
 /// Root view. Phase 2 replaces this body with the two-pane diff view backed by
