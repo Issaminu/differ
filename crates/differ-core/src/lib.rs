@@ -14,6 +14,7 @@ use imara_diff::{Algorithm, Diff, InternedInput, Interner};
 pub mod align;
 pub mod decorations;
 pub mod fixtures;
+pub mod model;
 
 /// Per-chunk size cap for the inner byte-level diff. Above this the inner pass
 /// is skipped (chunk gets `changes: []`). See the WASM crate for the rationale

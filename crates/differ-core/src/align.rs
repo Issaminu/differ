@@ -49,7 +49,7 @@ pub fn align(chunks: &[Chunk], a: &str, b: &str) -> Vec<AlignedRow> {
     // Pairs the equal-length common part 1:1, then spacer-pads any residual
     // (defensive — a correct diff makes gaps equal, but line-count mapping at
     // EOF/newline boundaries can leave a remainder; never overshoot or panic).
-    let mut emit_unchanged =
+    let emit_unchanged =
         |rows: &mut Vec<AlignedRow>, ai: &mut usize, bi: &mut usize, a_end: usize, b_end: usize| {
             let a_end = a_end.min(a_lines);
             let b_end = b_end.min(b_lines);

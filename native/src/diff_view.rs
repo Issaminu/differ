@@ -1,28 +1,26 @@
-// The two-pane diff view — built on raw gpui so decorations, gutter, and scroll
-// are first-class. Syntax highlighting is reused from gpui-component's
-// standalone `SyntaxHighlighter`.
+// The two-pane diff view — a thin gpui shell over the pure, headlessly-tested
+// `differ_core::model::DiffModel`. The model owns all editing + diff state; the
+// view forwards key events to it and renders its rows/decorations, layering
+// gpui-component's SyntaxHighlighter on top (the one gpui-dependent piece).
 //
-// Increment 7: make it an interactive editor. The right pane (B, the "new"
-// side) is editable — keystrokes mutate its buffer and the diff + decorations
-// + alignment recompute live. Left pane (A) stays read-only for now; editing A
-// + side switching + precise caret geometry come next. Cursor is drawn as a
-// stand-in glyph at the cursor's line/offset.
+// The right pane (B, "new") is editable; left (A) is read-only for now. Cursor
+// is drawn as a stand-in glyph; click focuses (caret-by-click + A editing next).
 
 use std::ops::Range;
 
 use differ_core::{
-    align::{align, AlignedRow},
     decorations::{build_decorations, Side},
-    diff_with_changes, Chunk,
+    model::{DiffModel, KeyOutcome},
+    Chunk,
 };
 use gpui::{
-    div, prelude::*, px, rgb, rgba, Context, Div, FocusHandle, HighlightStyle, Hsla, KeyDownEvent,
-    MouseButton, StyledText, UniformListScrollHandle, Window, uniform_list,
+    div, prelude::*, px, rgb, rgba, uniform_list, Context, Div, FocusHandle, HighlightStyle, Hsla,
+    KeyDownEvent, MouseButton, StyledText, UniformListScrollHandle, Window,
 };
 use gpui_component::highlighter::{HighlightTheme, SyntaxHighlighter};
 use gpui_component::input::Rope;
 
-/// Rendering data for one side of the diff (rebuilt on every edit).
+/// Per-side rendering data (syntax + decorations), rebuilt on every edit.
 struct Pane {
     text: String,
     line_ranges: Vec<Range<usize>>,
@@ -122,9 +120,6 @@ impl Pane {
         runs
     }
 
-    /// One side's cell for a visual row. `caret_at` is a line-relative byte
-    /// offset at which to draw the stand-in caret (only the focused editable
-    /// side passes it).
     fn cell(&self, line: Option<u32>, changed: bool, caret_at: Option<usize>) -> Div {
         match line {
             Some(i) => {
@@ -158,65 +153,39 @@ impl Pane {
 }
 
 pub struct DiffView {
-    a: String,
-    b: String,
+    model: DiffModel,
     language: String,
-    /// Cursor as a byte offset into `b` (the editable side).
-    cursor_b: usize,
-    focus: FocusHandle,
-
-    // Cached render model — rebuilt by `recompute` on every edit.
     pane_a: Pane,
     pane_b: Pane,
-    rows: Vec<AlignedRow>,
-
+    focus: FocusHandle,
     scroll_handle: UniformListScrollHandle,
 }
 
 impl DiffView {
     pub fn new(a: &str, b: &str, language: &str, cx: &mut Context<Self>) -> Self {
-        let (pane_a, pane_b, rows) = Self::compute(a, b, language);
+        let model = DiffModel::new(a, b);
+        let (pane_a, pane_b) = Self::build_panes(&model, language);
         Self {
-            a: a.to_string(),
-            b: b.to_string(),
+            model,
             language: language.to_string(),
-            cursor_b: b.len(), // start at end so typing appends
-            focus: cx.focus_handle(),
             pane_a,
             pane_b,
-            rows,
+            focus: cx.focus_handle(),
             scroll_handle: UniformListScrollHandle::new(),
         }
     }
 
-    fn compute(a: &str, b: &str, language: &str) -> (Pane, Pane, Vec<AlignedRow>) {
-        let chunks = diff_with_changes(a, b);
-        let rows = align(&chunks, a, b);
-        let pane_a = Pane::build(a, Side::A, &chunks, language, rgba(0xf8514922).into(), rgba(0xf8514955).into(), rgb(0xf85149).into());
-        let pane_b = Pane::build(b, Side::B, &chunks, language, rgba(0x3fb95022).into(), rgba(0x3fb95055).into(), rgb(0x3fb950).into());
-        (pane_a, pane_b, rows)
+    fn build_panes(model: &DiffModel, language: &str) -> (Pane, Pane) {
+        let chunks = model.chunks();
+        let pane_a = Pane::build(model.text(Side::A), Side::A, chunks, language, rgba(0xf8514922).into(), rgba(0xf8514955).into(), rgb(0xf85149).into());
+        let pane_b = Pane::build(model.text(Side::B), Side::B, chunks, language, rgba(0x3fb95022).into(), rgba(0x3fb95055).into(), rgb(0x3fb950).into());
+        (pane_a, pane_b)
     }
 
-    /// Recompute the diff + decorations + alignment after an edit to B.
-    fn recompute(&mut self) {
-        let (pane_a, pane_b, rows) = Self::compute(&self.a, &self.b, &self.language);
-        self.pane_a = pane_a;
-        self.pane_b = pane_b;
-        self.rows = rows;
-    }
-
-    fn insert(&mut self, s: &str) {
-        self.b.insert_str(self.cursor_b, s);
-        self.cursor_b += s.len();
-    }
-
-    fn backspace(&mut self) {
-        if self.cursor_b == 0 {
-            return;
-        }
-        let prev = self.b[..self.cursor_b].char_indices().next_back().map(|(i, _)| i).unwrap_or(0);
-        self.b.replace_range(prev..self.cursor_b, "");
-        self.cursor_b = prev;
+    fn rebuild_panes(&mut self) {
+        let (a, b) = Self::build_panes(&self.model, &self.language);
+        self.pane_a = a;
+        self.pane_b = b;
     }
 
     fn on_key(&mut self, e: &KeyDownEvent, _window: &mut Window, cx: &mut Context<Self>) {
@@ -224,8 +193,8 @@ impl DiffView {
 
         if ks.modifiers.platform && ks.key == "v" {
             if let Some(text) = cx.read_from_clipboard().and_then(|c| c.text()) {
-                self.insert(&text);
-                self.recompute();
+                self.model.paste(&text);
+                self.rebuild_panes();
                 cx.notify();
             }
             return;
@@ -234,45 +203,21 @@ impl DiffView {
             return;
         }
 
-        match ks.key.as_str() {
-            "backspace" => self.backspace(),
-            "enter" => self.insert("\n"),
-            "tab" => self.insert("    "),
-            "space" => self.insert(" "),
-            "left" => {
-                self.cursor_b = self.b[..self.cursor_b].char_indices().next_back().map(|(i, _)| i).unwrap_or(0);
+        match self.model.apply_key(&ks.key, ks.key_char.as_deref()) {
+            KeyOutcome::Edited => {
+                self.rebuild_panes();
                 cx.notify();
-                return;
             }
-            "right" => {
-                if self.cursor_b < self.b.len() {
-                    self.cursor_b = self.b[self.cursor_b..].char_indices().nth(1).map(|(i, _)| self.cursor_b + i).unwrap_or(self.b.len());
-                }
-                cx.notify();
-                return;
-            }
-            _ => {
-                if let Some(ch) = ks.key_char.clone() {
-                    self.insert(&ch);
-                } else {
-                    return;
-                }
-            }
+            KeyOutcome::Moved => cx.notify(),
+            KeyOutcome::Ignored => {}
         }
-        self.recompute();
-        cx.notify();
-    }
-
-    /// Line index (in B) containing the cursor.
-    fn cursor_line_b(&self) -> usize {
-        self.b[..self.cursor_b].bytes().filter(|&c| c == b'\n').count()
     }
 
     fn render_row(&self, ix: usize, cursor_line: usize) -> Div {
-        let r = self.rows[ix];
+        let r = self.model.rows()[ix];
         let caret_b = match r.b {
             Some(bi) if bi as usize == cursor_line => {
-                Some(self.cursor_b - self.pane_b.line_ranges[bi as usize].start)
+                Some(self.model.cursor(Side::B) - self.pane_b.line_ranges[bi as usize].start)
             }
             _ => None,
         };
@@ -288,10 +233,10 @@ impl DiffView {
 
 impl Render for DiffView {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let cursor_line = self.cursor_line_b();
+        let cursor_line = self.model.cursor_line(Side::B);
         uniform_list(
             "diff-rows",
-            self.rows.len(),
+            self.model.rows().len(),
             cx.processor(move |this, range: Range<usize>, _window, _cx| {
                 range.map(|ix| this.render_row(ix, cursor_line)).collect::<Vec<_>>()
             }),
