@@ -15,7 +15,7 @@ use differ_core::{
 };
 use gpui::{
     div, prelude::*, px, rgb, rgba, uniform_list, Context, Div, FocusHandle, HighlightStyle, Hsla,
-    KeyDownEvent, MouseButton, StyledText, UniformListScrollHandle, Window,
+    KeyDownEvent, MouseButton, MouseDownEvent, StyledText, UniformListScrollHandle, Window,
 };
 use gpui_component::highlighter::{HighlightTheme, SyntaxHighlighter};
 use gpui_component::input::Rope;
@@ -214,10 +214,17 @@ impl DiffView {
         }
     }
 
-    fn render_row(&self, ix: usize, cursor_line: usize) -> Div {
+    fn render_row(&self, ix: usize, active: Side, cursor_line: usize) -> Div {
         let r = self.model.rows()[ix];
+        // Draw the caret only on the active (focused) side's cursor line.
+        let caret_a = match r.a {
+            Some(ai) if active == Side::A && ai as usize == cursor_line => {
+                Some(self.model.cursor(Side::A) - self.pane_a.line_ranges[ai as usize].start)
+            }
+            _ => None,
+        };
         let caret_b = match r.b {
-            Some(bi) if bi as usize == cursor_line => {
+            Some(bi) if active == Side::B && bi as usize == cursor_line => {
                 Some(self.model.cursor(Side::B) - self.pane_b.line_ranges[bi as usize].start)
             }
             _ => None,
@@ -226,7 +233,7 @@ impl DiffView {
             .flex()
             .flex_row()
             .w_full()
-            .child(self.pane_a.cell(r.a, r.changed, None))
+            .child(self.pane_a.cell(r.a, r.changed, caret_a))
             .child(div().w(px(1.0)).flex_none().bg(rgb(0x333333)))
             .child(self.pane_b.cell(r.b, r.changed, caret_b))
     }
@@ -234,19 +241,25 @@ impl DiffView {
 
 impl Render for DiffView {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let cursor_line = self.model.cursor_line(Side::B);
+        let active = self.model.active();
+        let cursor_line = self.model.cursor_line(active);
         uniform_list(
             "diff-rows",
             self.model.rows().len(),
             cx.processor(move |this, range: Range<usize>, _window, _cx| {
-                range.map(|ix| this.render_row(ix, cursor_line)).collect::<Vec<_>>()
+                range.map(|ix| this.render_row(ix, active, cursor_line)).collect::<Vec<_>>()
             }),
         )
         .track_focus(&self.focus)
         .on_key_down(cx.listener(Self::on_key))
         .on_mouse_down(
             MouseButton::Left,
-            cx.listener(|this, _ev, window, cx| {
+            cx.listener(|this, ev: &MouseDownEvent, window, cx| {
+                // Pick the clicked side by comparing the click x to the view's
+                // horizontal midpoint (the panes split at center).
+                let mid = window.viewport_size().width / 2.0;
+                let side = if ev.position.x < mid { Side::A } else { Side::B };
+                this.model.set_active(side);
                 this.focus.focus(window, cx);
                 cx.notify();
             }),

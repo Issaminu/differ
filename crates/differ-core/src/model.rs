@@ -252,6 +252,17 @@ mod tests {
     }
 
     #[test]
+    fn editing_side_a_works() {
+        let mut m = DiffModel::new("a\nb\n", "a\nb\n");
+        m.set_active(Side::A); // A's cursor starts at 0
+        type_str(&mut m, "X");
+        assert_eq!(m.text(Side::A), "Xa\nb\n");
+        assert_eq!(m.text(Side::B), "a\nb\n", "B must be untouched");
+        assert!(!m.chunks().is_empty(), "editing A should produce a diff");
+        assert_rows_valid(&m);
+    }
+
+    #[test]
     fn paste_inserts_at_cursor() {
         let mut m = DiffModel::new("a\n", "a\n");
         m.paste("pasted\ntext");
