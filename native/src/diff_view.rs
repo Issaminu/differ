@@ -17,7 +17,7 @@ use differ_core::{
 };
 use gpui::{
     div, prelude::*, px, rgb, rgba, uniform_list, Context, Div, FocusHandle, HighlightStyle, Hsla,
-    KeyDownEvent, MouseButton, MouseDownEvent, SharedString, Stateful, StyledText,
+    KeyDownEvent, MouseButton, MouseDownEvent, ScrollStrategy, SharedString, Stateful, StyledText,
     UniformListScrollHandle, Window,
 };
 use gpui_component::highlighter::{HighlightTheme, SyntaxHighlighter};
@@ -280,6 +280,16 @@ impl DiffView {
             .child(self.pane_b.cell(r.b, r.changed, caret_b))
     }
 
+    /// Aligned-row index the active cursor currently sits on (for scroll-to).
+    fn cursor_row_index(&self) -> Option<usize> {
+        let active = self.model.active();
+        let line = self.model.cursor_line(active) as u32;
+        self.model.rows().iter().position(|r| match active {
+            Side::A => r.a == Some(line),
+            Side::B => r.b == Some(line),
+        })
+    }
+
     /// Right-side history panel: recent captures, click to restore.
     fn render_drawer(&self, cx: &mut Context<Self>) -> Div {
         let rows: Vec<Stateful<Div>> = self
@@ -341,6 +351,22 @@ impl Render for DiffView {
             .child(div().child(format!("Language: {language}")))
             .child(div().text_color(rgb(0x3fb950)).child(format!("+{added}")))
             .child(div().text_color(rgb(0xf85149)).child(format!("−{removed}")))
+            .child(Self::button("btn-prev", "◀ Change").on_click(cx.listener(|this, _, _window, cx| {
+                if this.model.goto_prev_change() {
+                    if let Some(ix) = this.cursor_row_index() {
+                        this.scroll_handle.scroll_to_item(ix, ScrollStrategy::Center);
+                    }
+                    cx.notify();
+                }
+            })))
+            .child(Self::button("btn-next", "Change ▶").on_click(cx.listener(|this, _, _window, cx| {
+                if this.model.goto_next_change() {
+                    if let Some(ix) = this.cursor_row_index() {
+                        this.scroll_handle.scroll_to_item(ix, ScrollStrategy::Center);
+                    }
+                    cx.notify();
+                }
+            })))
             .child(div().flex_1()) // spacer
             .child(Self::button("btn-swap", "Swap").on_click(cx.listener(|this, _, _window, cx| {
                 this.model.swap();

@@ -250,6 +250,47 @@ impl DiffModel {
         }
     }
 
+    fn set_cursor(&mut self, side: Side, pos: usize) {
+        match side {
+            Side::A => self.cursor_a = pos.min(self.a.len()),
+            Side::B => self.cursor_b = pos.min(self.b.len()),
+        }
+    }
+
+    fn chunk_start(side: Side, c: &Chunk) -> u32 {
+        match side {
+            Side::A => c.from_a,
+            Side::B => c.from_b,
+        }
+    }
+
+    /// Move the active cursor to the next change (chunk start) after it.
+    /// Returns false if already past the last change.
+    pub fn goto_next_change(&mut self) -> bool {
+        let side = self.active;
+        let cur = self.cursor(side) as u32;
+        match self.chunks.iter().map(|c| Self::chunk_start(side, c)).find(|&s| s > cur) {
+            Some(t) => {
+                self.set_cursor(side, t as usize);
+                true
+            }
+            None => false,
+        }
+    }
+
+    /// Move the active cursor to the previous change (chunk start) before it.
+    pub fn goto_prev_change(&mut self) -> bool {
+        let side = self.active;
+        let cur = self.cursor(side) as u32;
+        match self.chunks.iter().map(|c| Self::chunk_start(side, c)).filter(|&s| s < cur).last() {
+            Some(t) => {
+                self.set_cursor(side, t as usize);
+                true
+            }
+            None => false,
+        }
+    }
+
     pub fn move_left(&mut self) {
         let (buf, cur) = self.buf_cursor_mut();
         *cur = buf[..*cur].char_indices().next_back().map(|(i, _)| i).unwrap_or(0);
@@ -392,6 +433,22 @@ mod tests {
         type_str(&mut m, "extra();");
         m.apply_key("backspace", None);
         assert_rows_valid(&m);
+    }
+
+    #[test]
+    fn change_navigation_walks_chunks() {
+        // B changes line 1 ("B") and line 3 ("D") -> chunk starts at bytes 2, 6.
+        let mut m = DiffModel::new("a\nb\nc\nd\n", "a\nB\nc\nD\n");
+        // cursor starts at end (8); walk backwards.
+        assert!(m.goto_prev_change());
+        assert_eq!(m.cursor(Side::B), 6);
+        assert!(m.goto_prev_change());
+        assert_eq!(m.cursor(Side::B), 2);
+        assert!(!m.goto_prev_change(), "nothing before the first change");
+        // Forward again.
+        assert!(m.goto_next_change());
+        assert_eq!(m.cursor(Side::B), 6);
+        assert!(!m.goto_next_change(), "nothing after the last change");
     }
 
     #[test]
