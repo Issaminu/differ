@@ -11,11 +11,24 @@
 
 use crate::{
     align::{align, AlignedRow},
-    decorations::{build_decorations, Decorations, Side},
+    decorations::{build_decorations, count_changed_lines, Decorations, Side},
     diff_with_changes,
     lang::detect_language,
     Chunk,
 };
+
+/// Max undo depth (older snapshots are dropped).
+const MAX_UNDO: usize = 200;
+
+/// Point-in-time document state for undo/redo.
+#[derive(Clone)]
+struct Snapshot {
+    a: String,
+    b: String,
+    cursor_a: usize,
+    cursor_b: usize,
+    active: Side,
+}
 
 /// What an `apply_key` call did — lets the view decide whether to recompute
 /// syntax highlighting (Edited) or just repaint the cursor (Moved).
@@ -35,6 +48,8 @@ pub struct DiffModel {
     chunks: Vec<Chunk>,
     rows: Vec<AlignedRow>,
     language: &'static str,
+    undo: Vec<Snapshot>,
+    redo: Vec<Snapshot>,
 }
 
 impl DiffModel {
@@ -51,6 +66,8 @@ impl DiffModel {
             chunks: Vec::new(),
             rows: Vec::new(),
             language: "plaintext",
+            undo: Vec::new(),
+            redo: Vec::new(),
         };
         m.recompute();
         m
@@ -114,6 +131,7 @@ impl DiffModel {
     }
 
     pub fn insert(&mut self, s: &str) {
+        self.record();
         {
             let (buf, cur) = self.buf_cursor_mut();
             buf.insert_str(*cur, s);
@@ -127,16 +145,99 @@ impl DiffModel {
     }
 
     pub fn backspace(&mut self) {
+        if self.cursor(self.active) == 0 {
+            return;
+        }
+        self.record();
         {
             let (buf, cur) = self.buf_cursor_mut();
-            if *cur == 0 {
-                return;
-            }
             let prev = buf[..*cur].char_indices().next_back().map(|(i, _)| i).unwrap_or(0);
             buf.replace_range(prev..*cur, "");
             *cur = prev;
         }
         self.recompute();
+    }
+
+    /// Swap the two sides (and their cursors). Useful when the panes are
+    /// reversed — mirrors the toolbar swap.
+    pub fn swap(&mut self) {
+        self.record();
+        std::mem::swap(&mut self.a, &mut self.b);
+        std::mem::swap(&mut self.cursor_a, &mut self.cursor_b);
+        self.recompute();
+    }
+
+    /// Clear both sides.
+    pub fn clear(&mut self) {
+        self.record();
+        self.a.clear();
+        self.b.clear();
+        self.cursor_a = 0;
+        self.cursor_b = 0;
+        self.recompute();
+    }
+
+    /// (added lines on B, removed lines on A) across all chunks — for the
+    /// toolbar's `+N -M` indicator.
+    pub fn stats(&self) -> (usize, usize) {
+        let mut added = 0;
+        let mut removed = 0;
+        for c in &self.chunks {
+            removed += count_changed_lines(&self.a, c.from_a, c.end_a) as usize;
+            added += count_changed_lines(&self.b, c.from_b, c.end_b) as usize;
+        }
+        (added, removed)
+    }
+
+    fn snapshot(&self) -> Snapshot {
+        Snapshot {
+            a: self.a.clone(),
+            b: self.b.clone(),
+            cursor_a: self.cursor_a,
+            cursor_b: self.cursor_b,
+            active: self.active,
+        }
+    }
+
+    /// Record the pre-edit state for undo; called by every mutating op. Clears
+    /// the redo stack (a new edit invalidates the redo history).
+    fn record(&mut self) {
+        self.undo.push(self.snapshot());
+        if self.undo.len() > MAX_UNDO {
+            self.undo.remove(0);
+        }
+        self.redo.clear();
+    }
+
+    fn restore(&mut self, s: Snapshot) {
+        self.a = s.a;
+        self.b = s.b;
+        self.cursor_a = s.cursor_a;
+        self.cursor_b = s.cursor_b;
+        self.active = s.active;
+        self.recompute();
+    }
+
+    pub fn undo(&mut self) -> bool {
+        match self.undo.pop() {
+            Some(s) => {
+                self.redo.push(self.snapshot());
+                self.restore(s);
+                true
+            }
+            None => false,
+        }
+    }
+
+    pub fn redo(&mut self) -> bool {
+        match self.redo.pop() {
+            Some(s) => {
+                self.undo.push(self.snapshot());
+                self.restore(s);
+                true
+            }
+            None => false,
+        }
     }
 
     pub fn move_left(&mut self) {
@@ -281,6 +382,60 @@ mod tests {
         type_str(&mut m, "extra();");
         m.apply_key("backspace", None);
         assert_rows_valid(&m);
+    }
+
+    #[test]
+    fn swap_exchanges_sides() {
+        let mut m = DiffModel::new("left\n", "right\n");
+        m.swap();
+        assert_eq!(m.text(Side::A), "right\n");
+        assert_eq!(m.text(Side::B), "left\n");
+        assert_rows_valid(&m);
+    }
+
+    #[test]
+    fn clear_empties_both_sides() {
+        let mut m = DiffModel::new("a\nb\n", "c\nd\n");
+        m.clear();
+        assert_eq!(m.text(Side::A), "");
+        assert_eq!(m.text(Side::B), "");
+        assert!(m.chunks().is_empty());
+    }
+
+    #[test]
+    fn stats_counts_added_and_removed() {
+        // B replaces one line and adds one: 1 line differs + 1 inserted.
+        let mut m = DiffModel::new("keep\nold\n", "keep\nnew\nextra\n");
+        let (added, removed) = m.stats();
+        assert!(added >= 1 && removed >= 1, "expected changes, got +{added} -{removed}");
+        // No-diff => zero.
+        m = DiffModel::new("same\n", "same\n");
+        assert_eq!(m.stats(), (0, 0));
+    }
+
+    #[test]
+    fn undo_redo_round_trips() {
+        let mut m = DiffModel::new("x\n", "x\n");
+        type_str(&mut m, "abc");
+        assert_eq!(m.text(Side::B), "x\nabc");
+        // Undo the three inserts.
+        assert!(m.undo() && m.undo() && m.undo());
+        assert_eq!(m.text(Side::B), "x\n");
+        assert!(!m.undo(), "nothing left to undo");
+        // Redo brings it back.
+        assert!(m.redo() && m.redo() && m.redo());
+        assert_eq!(m.text(Side::B), "x\nabc");
+        assert_rows_valid(&m);
+    }
+
+    #[test]
+    fn new_edit_clears_redo() {
+        let mut m = DiffModel::new("x\n", "x\n");
+        type_str(&mut m, "a");
+        m.undo();
+        type_str(&mut m, "b"); // new edit -> redo of "a" is gone
+        assert!(!m.redo(), "redo should be cleared by a new edit");
+        assert_eq!(m.text(Side::B), "x\nb");
     }
 
     #[test]

@@ -15,7 +15,7 @@ use differ_core::{
 };
 use gpui::{
     div, prelude::*, px, rgb, rgba, uniform_list, Context, Div, FocusHandle, HighlightStyle, Hsla,
-    KeyDownEvent, MouseButton, MouseDownEvent, StyledText, UniformListScrollHandle, Window,
+    KeyDownEvent, MouseButton, MouseDownEvent, Stateful, StyledText, UniformListScrollHandle, Window,
 };
 use gpui_component::highlighter::{HighlightTheme, SyntaxHighlighter};
 use gpui_component::input::Rope;
@@ -200,6 +200,15 @@ impl DiffView {
             }
             return;
         }
+        // Cmd+Z undo, Cmd+Shift+Z redo.
+        if ks.modifiers.platform && ks.key == "z" {
+            let changed = if ks.modifiers.shift { self.model.redo() } else { self.model.undo() };
+            if changed {
+                self.rebuild_panes();
+                cx.notify();
+            }
+            return;
+        }
         if ks.modifiers.platform || ks.modifiers.control {
             return;
         }
@@ -212,6 +221,20 @@ impl DiffView {
             KeyOutcome::Moved => cx.notify(),
             KeyOutcome::Ignored => {}
         }
+    }
+
+    /// A styled toolbar button (caller attaches the click handler).
+    fn button(id: &'static str, label: &str) -> Stateful<Div> {
+        div()
+            .id(id)
+            .flex_none()
+            .px_2()
+            .py_1()
+            .rounded_md()
+            .bg(rgb(0x37373d))
+            .text_color(rgb(0xe6e6e6))
+            .cursor_pointer()
+            .child(label.to_string())
     }
 
     fn render_row(&self, ix: usize, active: Side, cursor_line: usize) -> Div {
@@ -243,7 +266,48 @@ impl Render for DiffView {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let active = self.model.active();
         let cursor_line = self.model.cursor_line(active);
-        uniform_list(
+        let (added, removed) = self.model.stats();
+        let language = self.model.language();
+
+        let toolbar = div()
+            .flex()
+            .flex_row()
+            .items_center()
+            .gap_3()
+            .flex_none()
+            .h(px(38.0))
+            .px_3()
+            .bg(rgb(0x252526))
+            .text_color(rgb(0xcccccc))
+            .text_size(px(12.0))
+            .child(div().child(format!("Language: {language}")))
+            .child(div().text_color(rgb(0x3fb950)).child(format!("+{added}")))
+            .child(div().text_color(rgb(0xf85149)).child(format!("−{removed}")))
+            .child(div().flex_1()) // spacer
+            .child(Self::button("btn-swap", "Swap").on_click(cx.listener(|this, _, _window, cx| {
+                this.model.swap();
+                this.rebuild_panes();
+                cx.notify();
+            })))
+            .child(Self::button("btn-clear", "Clear").on_click(cx.listener(|this, _, _window, cx| {
+                this.model.clear();
+                this.rebuild_panes();
+                cx.notify();
+            })))
+            .child(Self::button("btn-undo", "Undo").on_click(cx.listener(|this, _, _window, cx| {
+                if this.model.undo() {
+                    this.rebuild_panes();
+                    cx.notify();
+                }
+            })))
+            .child(Self::button("btn-redo", "Redo").on_click(cx.listener(|this, _, _window, cx| {
+                if this.model.redo() {
+                    this.rebuild_panes();
+                    cx.notify();
+                }
+            })));
+
+        let list = uniform_list(
             "diff-rows",
             self.model.rows().len(),
             cx.processor(move |this, range: Range<usize>, _window, _cx| {
@@ -265,9 +329,10 @@ impl Render for DiffView {
             }),
         )
         .track_scroll(&self.scroll_handle)
-        .size_full()
-        .bg(rgb(0x1e1e1e))
+        .flex_1()
         .text_color(rgb(0xe6e6e6))
-        .text_size(px(13.0))
+        .text_size(px(13.0));
+
+        div().flex().flex_col().size_full().bg(rgb(0x1e1e1e)).child(toolbar).child(list)
     }
 }
