@@ -6,6 +6,7 @@
 // gpui with gpui-component reused as a library for syntax highlighting.
 
 mod diff_view;
+mod history_store;
 
 use diff_view::DiffView;
 use gpui::{

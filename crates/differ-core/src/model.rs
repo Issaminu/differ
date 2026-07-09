@@ -167,6 +167,16 @@ impl DiffModel {
         self.recompute();
     }
 
+    /// Replace both documents (e.g. restoring a history entry). Undoable.
+    pub fn set_docs(&mut self, a: impl Into<String>, b: impl Into<String>) {
+        self.record();
+        self.a = a.into();
+        self.b = b.into();
+        self.cursor_a = self.a.len();
+        self.cursor_b = self.b.len();
+        self.recompute();
+    }
+
     /// Clear both sides.
     pub fn clear(&mut self) {
         self.record();
@@ -411,6 +421,18 @@ mod tests {
         // No-diff => zero.
         m = DiffModel::new("same\n", "same\n");
         assert_eq!(m.stats(), (0, 0));
+    }
+
+    #[test]
+    fn set_docs_replaces_and_is_undoable() {
+        let mut m = DiffModel::new("a\n", "a\n");
+        m.set_docs("one\ntwo\n", "one\nTWO\n");
+        assert_eq!(m.text(Side::A), "one\ntwo\n");
+        assert_eq!(m.text(Side::B), "one\nTWO\n");
+        assert!(!m.chunks().is_empty());
+        assert!(m.undo());
+        assert_eq!(m.text(Side::A), "a\n");
+        assert_rows_valid(&m);
     }
 
     #[test]

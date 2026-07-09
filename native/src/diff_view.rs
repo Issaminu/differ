@@ -8,14 +8,17 @@
 
 use std::ops::Range;
 
+use crate::history_store;
 use differ_core::{
     decorations::{build_decorations, Side},
+    history::History,
     model::{DiffModel, KeyOutcome},
     Chunk,
 };
 use gpui::{
     div, prelude::*, px, rgb, rgba, uniform_list, Context, Div, FocusHandle, HighlightStyle, Hsla,
-    KeyDownEvent, MouseButton, MouseDownEvent, Stateful, StyledText, UniformListScrollHandle, Window,
+    KeyDownEvent, MouseButton, MouseDownEvent, SharedString, Stateful, StyledText,
+    UniformListScrollHandle, Window,
 };
 use gpui_component::highlighter::{HighlightTheme, SyntaxHighlighter};
 use gpui_component::input::Rope;
@@ -158,6 +161,8 @@ pub struct DiffView {
     pane_b: Pane,
     focus: FocusHandle,
     scroll_handle: UniformListScrollHandle,
+    history: History,
+    history_open: bool,
 }
 
 impl DiffView {
@@ -170,7 +175,19 @@ impl DiffView {
             pane_b,
             focus: cx.focus_handle(),
             scroll_handle: UniformListScrollHandle::new(),
+            history: history_store::load(),
+            history_open: false,
         }
+    }
+
+    /// Record the current diff into history (dedupe merges rapid edits).
+    fn capture(&mut self) {
+        self.history.capture(
+            self.model.text(Side::A),
+            self.model.text(Side::B),
+            self.model.language(),
+            history_store::now_ms(),
+        );
     }
 
     /// (Re)build the syntax + decoration panes using the model's currently
@@ -196,6 +213,7 @@ impl DiffView {
             if let Some(text) = cx.read_from_clipboard().and_then(|c| c.text()) {
                 self.model.paste(&text);
                 self.rebuild_panes();
+                self.capture();
                 cx.notify();
             }
             return;
@@ -216,6 +234,7 @@ impl DiffView {
         match self.model.apply_key(&ks.key, ks.key_char.as_deref()) {
             KeyOutcome::Edited => {
                 self.rebuild_panes();
+                self.capture();
                 cx.notify();
             }
             KeyOutcome::Moved => cx.notify(),
@@ -259,6 +278,45 @@ impl DiffView {
             .child(self.pane_a.cell(r.a, r.changed, caret_a))
             .child(div().w(px(1.0)).flex_none().bg(rgb(0x333333)))
             .child(self.pane_b.cell(r.b, r.changed, caret_b))
+    }
+
+    /// Right-side history panel: recent captures, click to restore.
+    fn render_drawer(&self, cx: &mut Context<Self>) -> Div {
+        let rows: Vec<Stateful<Div>> = self
+            .history
+            .recent()
+            .map(|e| {
+                let (orig, modif) = (e.original.clone(), e.modified.clone());
+                let preview = if e.preview.trim().is_empty() { "(empty)".to_string() } else { e.preview.clone() };
+                let lang = e.language.to_string();
+                div()
+                    .id(SharedString::from(e.id.clone()))
+                    .flex()
+                    .flex_col()
+                    .gap_1()
+                    .px_3()
+                    .py_2()
+                    .cursor_pointer()
+                    .on_click(cx.listener(move |this, _, _window, cx| {
+                        this.model.set_docs(orig.clone(), modif.clone());
+                        this.rebuild_panes();
+                        this.history_open = false;
+                        cx.notify();
+                    }))
+                    .child(div().text_color(rgb(0xe6e6e6)).child(preview))
+                    .child(div().text_color(rgb(0x808080)).text_size(px(11.0)).child(lang))
+            })
+            .collect();
+
+        div()
+            .flex()
+            .flex_col()
+            .flex_none()
+            .w(px(300.0))
+            .h_full()
+            .bg(rgb(0x252526))
+            .child(div().px_3().py_2().text_color(rgb(0xcccccc)).text_size(px(12.0)).child("History"))
+            .child(div().id("history-scroll").flex().flex_col().flex_1().overflow_y_scroll().children(rows))
     }
 }
 
@@ -305,6 +363,11 @@ impl Render for DiffView {
                     this.rebuild_panes();
                     cx.notify();
                 }
+            })))
+            .child(Self::button("btn-history", "History").on_click(cx.listener(|this, _, _window, cx| {
+                this.history_open = !this.history_open;
+                history_store::save(&this.history); // flush to disk on toggle
+                cx.notify();
             })));
 
         let list = uniform_list(
@@ -333,6 +396,11 @@ impl Render for DiffView {
         .text_color(rgb(0xe6e6e6))
         .text_size(px(13.0));
 
-        div().flex().flex_col().size_full().bg(rgb(0x1e1e1e)).child(toolbar).child(list)
+        let body = div().flex().flex_col().flex_1().child(toolbar).child(list);
+        let mut root = div().flex().flex_row().size_full().bg(rgb(0x1e1e1e)).child(body);
+        if self.history_open {
+            root = root.child(self.render_drawer(cx));
+        }
+        root
     }
 }

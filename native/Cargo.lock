@@ -1307,6 +1307,7 @@ version = "0.1.0"
 dependencies = [
  "imara-diff",
  "regex",
+ "serde",
  "serde_json",
 ]
 
