@@ -39,10 +39,31 @@ const RECOMPUTE_DEBOUNCE: Duration = Duration::from_millis(30);
 // Keyboard-dispatchable actions (bound in main.rs).
 gpui::actions!(differ, [NextChange, PrevChange, SwapSides, ClearBoth, OpenFile, ToggleSync, ToggleHistory]);
 
+// Language override cycle (None = auto-detect; "text" = plain text).
+const LANG_CYCLE: &[Option<&str>] = &[
+    None,
+    Some("text"),
+    Some("rust"),
+    Some("javascript"),
+    Some("typescript"),
+    Some("python"),
+    Some("go"),
+    Some("json"),
+    Some("html"),
+    Some("markdown"),
+    Some("css"),
+    Some("cpp"),
+];
+
 pub struct DiffView {
     editor_a: Entity<InputState>,
     editor_b: Entity<InputState>,
+    /// Effective language (manual override if set, else detected).
     language: &'static str,
+    /// Auto-detected language (used when there's no manual override).
+    detected_language: &'static str,
+    /// Manual language override (None = auto-detect).
+    manual_language: Option<&'static str>,
     stats: (usize, usize),
     recompute_gen: u64,
     /// Line index of each change per side (aligned by index) + current cursor.
@@ -102,6 +123,8 @@ impl DiffView {
             editor_a,
             editor_b,
             language: "text",
+            detected_language: "text",
+            manual_language: None,
             stats: (0, 0),
             recompute_gen: 0,
             changes_a: Vec::new(),
@@ -172,18 +195,34 @@ impl DiffView {
             self.current_change = 0;
         }
 
-        if comp.language != self.language {
-            self.language = comp.language;
-            self.editor_a.update(cx, |ed, cx| ed.set_highlighter(comp.language, cx));
-            self.editor_b.update(cx, |ed, cx| ed.set_highlighter(comp.language, cx));
-        }
+        self.detected_language = comp.language;
+        self.apply_language(cx);
 
         let ha = to_highlights(&comp.tints_a, REMOVED);
         let hb = to_highlights(&comp.tints_b, ADDED);
         self.editor_a.update(cx, |ed, cx| ed.set_diff_highlights(ha, cx));
         self.editor_b.update(cx, |ed, cx| ed.set_diff_highlights(hb, cx));
 
-        self.history.capture(a, b, comp.language, history_store::now_ms());
+        self.history.capture(a, b, self.language, history_store::now_ms());
+        cx.notify();
+    }
+
+    /// Set the editors' syntax to the effective language (manual override, else
+    /// detected).
+    fn apply_language(&mut self, cx: &mut Context<Self>) {
+        let lang = self.manual_language.unwrap_or(self.detected_language);
+        if lang != self.language {
+            self.language = lang;
+            self.editor_a.update(cx, |ed, cx| ed.set_highlighter(lang, cx));
+            self.editor_b.update(cx, |ed, cx| ed.set_highlighter(lang, cx));
+        }
+    }
+
+    /// Cycle the manual language override (Auto -> Plain Text -> Rust -> ...).
+    fn cycle_language(&mut self, cx: &mut Context<Self>) {
+        let cur = LANG_CYCLE.iter().position(|&x| x == self.manual_language).unwrap_or(0);
+        self.manual_language = LANG_CYCLE[(cur + 1) % LANG_CYCLE.len()];
+        self.apply_language(cx);
         cx.notify();
     }
 
@@ -454,7 +493,14 @@ impl Render for DiffView {
             .border_color(border)
             .text_color(muted)
             .text_size(px(12.0))
-            .child(div().child(format!("Language: {language}")))
+            .child({
+                let label = if self.manual_language.is_none() {
+                    format!("{language} · auto")
+                } else {
+                    language.to_string()
+                };
+                Self::button("btn-lang", &label, secondary, fg).on_click(cx.listener(|this, _, _w, cx| this.cycle_language(cx)))
+            })
             .child(div().text_color(rgb(ADDED)).child(format!("+{added}")))
             .child(div().text_color(rgb(REMOVED)).child(format!("−{removed}")))
             .child(Self::button("btn-prev", "◀", secondary, fg).on_click(cx.listener(|this, _, _window, cx| this.goto_change(-1, cx))))
