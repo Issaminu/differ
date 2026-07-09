@@ -32,10 +32,11 @@ const REMOVED: u32 = 0xf85149;
 const ADDED_TINT: u32 = 0x3fb95033;
 const REMOVED_TINT: u32 = 0xf8514933;
 
-/// Debounce window: recompute the diff this long after the last keystroke, so
-/// typing stays smooth on big docs (the editor handles keys natively; we only
-/// re-diff + re-render once typing pauses).
-const RECOMPUTE_DEBOUNCE: Duration = Duration::from_millis(150);
+/// Very small debounce that only coalesces bursts of keystrokes — the diff
+/// itself runs on a background thread, so typing never blocks on it. Keeps
+/// tints feeling live while avoiding redundant background work during fast
+/// typing/paste.
+const RECOMPUTE_DEBOUNCE: Duration = Duration::from_millis(30);
 
 pub struct DiffView {
     editor_a: Entity<InputState>,
@@ -101,18 +102,50 @@ impl DiffView {
         view
     }
 
-    /// Schedule a recompute after the debounce window; superseded if another
-    /// keystroke arrives first (so continuous typing never re-diffs).
+    /// Recompute the diff off the main thread. On each edit we cheaply clone
+    /// both editors' ropes (O(1), shared structure), then stringify + diff on a
+    /// background thread and apply the result on the main thread. A tiny
+    /// debounce coalesces bursts; a generation guard drops stale results.
     fn schedule_recompute(&mut self, cx: &mut Context<Self>) {
         self.recompute_gen = self.recompute_gen.wrapping_add(1);
         let generation = self.recompute_gen;
+        let a_rope = self.editor_a.read(cx).text().clone();
+        let b_rope = self.editor_b.read(cx).text().clone();
+
         cx.spawn(async move |this, cx| {
+            // Coalesce bursts; bail if a newer edit superseded us in the meantime.
             cx.background_executor().timer(RECOMPUTE_DEBOUNCE).await;
+            let superseded = this.update(cx, |this, _| this.recompute_gen != generation).unwrap_or(true);
+            if superseded {
+                return;
+            }
+
+            // Heavy work (stringify both ropes + diff) on a background thread.
+            let (a, b, comp) = cx
+                .background_executor()
+                .spawn(async move {
+                    let a: String = a_rope.chunks().collect();
+                    let b: String = b_rope.chunks().collect();
+                    let comp = compute(&a, &b);
+                    (a, b, comp)
+                })
+                .await;
+
+            // Apply on the main thread, if still the latest.
             let _ = this.update(cx, |this, cx| {
-                if this.recompute_gen == generation {
-                    this.recompute(cx);
-                    cx.notify();
+                if this.recompute_gen != generation {
+                    return;
                 }
+                this.stats = (comp.added, comp.removed);
+                this.changed_a = comp.changed_a;
+                this.changed_b = comp.changed_b;
+                if comp.language != this.language {
+                    this.language = comp.language;
+                    this.editor_a.update(cx, |ed, cx| ed.set_highlighter(comp.language, cx));
+                    this.editor_b.update(cx, |ed, cx| ed.set_highlighter(comp.language, cx));
+                }
+                this.history.capture(&a, &b, comp.language, history_store::now_ms());
+                cx.notify();
             });
         })
         .detach();
