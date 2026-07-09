@@ -11,6 +11,7 @@
 
 use imara_diff::{Algorithm, Diff, InternedInput, Interner};
 
+pub mod align;
 pub mod decorations;
 pub mod fixtures;
 
