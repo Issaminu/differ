@@ -15,9 +15,15 @@ use differ_core::{
     decorations::count_changed_lines, diff_with_changes, history::History, lang::detect_language,
 };
 use gpui::{
-    div, prelude::*, px, rgb, Context, Div, Entity, SharedString, Stateful, Subscription, Window,
+    div, prelude::*, px, rgb, Context, Div, Entity, Hsla, SharedString, Stateful, Subscription,
+    Window,
 };
 use gpui_component::input::{Input, InputEvent, InputState};
+use gpui_component::ActiveTheme;
+
+// Semantic diff colours (kept explicit; not part of the UI theme palette).
+const ADDED: u32 = 0x3fb950;
+const REMOVED: u32 = 0xf85149;
 
 pub struct DiffView {
     editor_a: Entity<InputState>,
@@ -89,15 +95,15 @@ impl DiffView {
     }
 
     /// A styled toolbar button (caller attaches the click handler).
-    fn button(id: &'static str, label: &str) -> Stateful<Div> {
+    fn button(id: &'static str, label: &str, bg: Hsla, fg: Hsla) -> Stateful<Div> {
         div()
             .id(id)
             .flex_none()
             .px_2()
             .py_1()
             .rounded_md()
-            .bg(rgb(0x37373d))
-            .text_color(rgb(0xe6e6e6))
+            .bg(bg)
+            .text_color(fg)
             .cursor_pointer()
             .child(label.to_string())
     }
@@ -105,6 +111,10 @@ impl DiffView {
     /// Right-side history panel: recent captures, click to restore into both
     /// editors.
     fn render_drawer(&self, cx: &mut Context<Self>) -> Div {
+        let (sidebar, border, fg, muted) = {
+            let t = cx.theme();
+            (t.sidebar, t.border, t.foreground, t.muted_foreground)
+        };
         let rows: Vec<Stateful<Div>> = self
             .history
             .recent()
@@ -128,8 +138,8 @@ impl DiffView {
                         this.recompute(cx); // set_value suppresses Change, so re-diff manually
                         cx.notify();
                     }))
-                    .child(div().text_color(rgb(0xe6e6e6)).child(preview))
-                    .child(div().text_color(rgb(0x808080)).text_size(px(11.0)).child(lang))
+                    .child(div().text_color(fg).child(preview))
+                    .child(div().text_color(muted).text_size(px(11.0)).child(lang))
             })
             .collect();
 
@@ -139,8 +149,10 @@ impl DiffView {
             .flex_none()
             .w(px(300.0))
             .h_full()
-            .bg(rgb(0x252526))
-            .child(div().px_3().py_2().text_color(rgb(0xcccccc)).text_size(px(12.0)).child("History"))
+            .border_l_1()
+            .border_color(border)
+            .bg(sidebar)
+            .child(div().px_3().py_2().text_color(muted).text_size(px(12.0)).child("History"))
             .child(div().id("history-scroll").flex().flex_col().flex_1().overflow_y_scroll().children(rows))
     }
 }
@@ -149,6 +161,10 @@ impl Render for DiffView {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let (added, removed) = self.stats;
         let language = self.language;
+        let (bg, bar, border, fg, muted, secondary) = {
+            let t = cx.theme();
+            (t.background, t.title_bar, t.border, t.foreground, t.muted_foreground, t.secondary)
+        };
 
         let toolbar = div()
             .flex()
@@ -158,14 +174,16 @@ impl Render for DiffView {
             .flex_none()
             .h(px(38.0))
             .px_3()
-            .bg(rgb(0x252526))
-            .text_color(rgb(0xcccccc))
+            .bg(bar)
+            .border_b_1()
+            .border_color(border)
+            .text_color(muted)
             .text_size(px(12.0))
             .child(div().child(format!("Language: {language}")))
-            .child(div().text_color(rgb(0x3fb950)).child(format!("+{added}")))
-            .child(div().text_color(rgb(0xf85149)).child(format!("−{removed}")))
+            .child(div().text_color(rgb(ADDED)).child(format!("+{added}")))
+            .child(div().text_color(rgb(REMOVED)).child(format!("−{removed}")))
             .child(div().flex_1()) // spacer
-            .child(Self::button("btn-swap", "Swap").on_click(cx.listener(|this, _, window, cx| {
+            .child(Self::button("btn-swap", "Swap", secondary, fg).on_click(cx.listener(|this, _, window, cx| {
                 let a = this.editor_a.read(cx).value();
                 let b = this.editor_b.read(cx).value();
                 this.editor_a.update(cx, |ed, cx| ed.set_value(b, window, cx));
@@ -173,13 +191,13 @@ impl Render for DiffView {
                 this.recompute(cx);
                 cx.notify();
             })))
-            .child(Self::button("btn-clear", "Clear").on_click(cx.listener(|this, _, window, cx| {
+            .child(Self::button("btn-clear", "Clear", secondary, fg).on_click(cx.listener(|this, _, window, cx| {
                 this.editor_a.update(cx, |ed, cx| ed.set_value("", window, cx));
                 this.editor_b.update(cx, |ed, cx| ed.set_value("", window, cx));
                 this.recompute(cx);
                 cx.notify();
             })))
-            .child(Self::button("btn-history", "History").on_click(cx.listener(|this, _, _window, cx| {
+            .child(Self::button("btn-history", "History", secondary, fg).on_click(cx.listener(|this, _, _window, cx| {
                 this.history_open = !this.history_open;
                 history_store::save(&this.history); // flush to disk on toggle
                 cx.notify();
@@ -190,11 +208,11 @@ impl Render for DiffView {
             .flex_row()
             .flex_1()
             .child(Input::new(&self.editor_a).bordered(false).flex_1().h_full().text_size(px(13.0)))
-            .child(div().w(px(1.0)).flex_none().bg(rgb(0x333333)))
+            .child(div().w(px(1.0)).flex_none().bg(border))
             .child(Input::new(&self.editor_b).bordered(false).flex_1().h_full().text_size(px(13.0)));
 
         let body = div().flex().flex_col().flex_1().child(toolbar).child(editors);
-        let mut root = div().flex().flex_row().size_full().bg(rgb(0x1e1e1e)).child(body);
+        let mut root = div().flex().flex_row().size_full().bg(bg).child(body);
         if self.history_open {
             root = root.child(self.render_drawer(cx));
         }
