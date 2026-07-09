@@ -18,7 +18,10 @@ use differ_core::{
     decorations::{build_decorations, Side},
     diff_with_changes,
 };
-use gpui::{div, prelude::*, px, rgb, rgba, Context, Div, HighlightStyle, Hsla, StyledText, Window};
+use gpui::{
+    div, prelude::*, px, rgb, rgba, uniform_list, Context, Div, HighlightStyle, Hsla, StyledText,
+    UniformListScrollHandle, Window,
+};
 use gpui_component::highlighter::{HighlightTheme, SyntaxHighlighter};
 use gpui_component::input::Rope;
 
@@ -159,6 +162,7 @@ pub struct DiffView {
     a: Pane,
     b: Pane,
     rows: Vec<AlignedRow>,
+    scroll_handle: UniformListScrollHandle,
 }
 
 impl DiffView {
@@ -167,35 +171,38 @@ impl DiffView {
         let rows = align(&chunks, a, b);
         let a_pane = Pane::build(a, Side::A, &chunks, language, rgba(0xf8514922).into(), rgba(0xf8514955).into(), rgb(0xf85149).into());
         let b_pane = Pane::build(b, Side::B, &chunks, language, rgba(0x3fb95022).into(), rgba(0x3fb95055).into(), rgb(0x3fb950).into());
-        Self { a: a_pane, b: b_pane, rows }
+        Self { a: a_pane, b: b_pane, rows, scroll_handle: UniformListScrollHandle::new() }
+    }
+
+    /// One aligned visual row: A cell | divider | B cell.
+    fn render_row(&self, ix: usize) -> Div {
+        let r = self.rows[ix];
+        div()
+            .flex()
+            .flex_row()
+            .w_full()
+            .child(self.a.cell(r.a, r.changed))
+            .child(div().w(px(1.0)).flex_none().bg(rgb(0x333333))) // divider
+            .child(self.b.cell(r.b, r.changed))
     }
 }
 
 impl Render for DiffView {
-    fn render(&mut self, _window: &mut Window, _cx: &mut Context<Self>) -> impl IntoElement {
-        let rows: Vec<Div> = self
-            .rows
-            .iter()
-            .map(|r| {
-                div()
-                    .flex()
-                    .flex_row()
-                    .w_full()
-                    .child(self.a.cell(r.a, r.changed))
-                    .child(div().w(px(1.0)).flex_none().bg(rgb(0x333333))) // divider
-                    .child(self.b.cell(r.b, r.changed))
-            })
-            .collect();
-
-        div()
-            .id("diff-scroll")
-            .flex()
-            .flex_col()
-            .size_full()
-            .bg(rgb(0x1e1e1e))
-            .text_color(rgb(0xe6e6e6))
-            .text_size(px(13.0))
-            .overflow_y_scroll()
-            .children(rows)
+    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        // uniform_list renders only the visible rows — a single scroll region
+        // over the aligned pairs, so both panes stay in sync and 10k-line diffs
+        // don't materialise every row each frame.
+        uniform_list(
+            "diff-rows",
+            self.rows.len(),
+            cx.processor(|this, range: Range<usize>, _window, _cx| {
+                range.map(|ix| this.render_row(ix)).collect::<Vec<_>>()
+            }),
+        )
+        .track_scroll(&self.scroll_handle)
+        .size_full()
+        .bg(rgb(0x1e1e1e))
+        .text_color(rgb(0xe6e6e6))
+        .text_size(px(13.0))
     }
 }
