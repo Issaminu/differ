@@ -12,7 +12,7 @@ use std::borrow::Cow;
 
 use diff_view::DiffView;
 use gpui::{
-    px, size, App, AppContext, Bounds, WindowBounds, WindowOptions,
+    point, px, size, App, AppContext, Bounds, TitlebarOptions, WindowBounds, WindowOptions,
 };
 
 // Temporary sample content so the view has something to diff until file/paste
@@ -38,6 +38,14 @@ fn main() {
         cx.open_window(
             WindowOptions {
                 window_bounds: Some(WindowBounds::Windowed(bounds)),
+                // Overlay titlebar (hidden system title, custom-drawn content
+                // under it) with mac traffic lights inset — matches the original
+                // Differ's window style.
+                titlebar: Some(TitlebarOptions {
+                    title: Some("Differ".into()),
+                    appears_transparent: true,
+                    traffic_light_position: Some(point(px(20.0), px(24.0))),
+                }),
                 ..Default::default()
             },
             |window, cx| {
