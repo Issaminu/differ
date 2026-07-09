@@ -25,6 +25,10 @@ crates/diff-wasm/pkg/
 crates/differ-core/target/
 native/target/
 
+## Vendored gpui-component fork — huge, not committed. Recreate with
+## scripts/setup-gpui-fork.sh; our changes live in fork-patches/.
+vendor/
+
 ## Tauri / Rust
 src-tauri/target/
 src-tauri/gen/

@@ -6,15 +6,14 @@ description = "Differ desktop app on GPUI (native, GPU-accelerated). Phase 0 spi
 license = "MIT"
 publish = false
 
-# The sanctioned gpui-component dependency trio (see its README). gpui +
-# gpui_platform come from the zed repo at HEAD; gpui-component tracks the same
-# HEAD, so they resolve to one compatible gpui. differ-core is our in-process
-# diff engine (no WASM boundary).
+# gpui + gpui_platform come from the zed repo. Pinned to the exact commit our
+# vendored gpui-component fork was built against, so the two resolve to one
+# unified gpui (a version skew would break Entity<InputState> types).
 [dependencies]
-gpui = { git = "https://github.com/zed-industries/zed" }
-gpui_platform = { git = "https://github.com/zed-industries/zed", features = ["font-kit"] }
-# tree-sitter-languages pulls in the base tree-sitter feature + all 33 grammars,
-# matching Differ's multi-language auto-detection. Grammars are feature-gated
-# (heavy C parsers), so without this SyntaxHighlighter falls back to plain text.
-gpui-component = { git = "https://github.com/longbridge/gpui-component", features = ["tree-sitter-languages"] }
+gpui = { git = "https://github.com/zed-industries/zed", rev = "35ffa8f480838257ae9650027cb9847505a0882b" }
+gpui_platform = { git = "https://github.com/zed-industries/zed", rev = "35ffa8f480838257ae9650027cb9847505a0882b", features = ["font-kit"] }
+# FORKED gpui-component (vendored under vendor/) — we add a diff-highlight API to
+# the editor so diff tints render inside the editor (no overlay). tree-sitter-
+# languages pulls in all grammars for multi-language auto-detection.
+gpui-component = { path = "../vendor/gpui-component/crates/ui", features = ["tree-sitter-languages"] }
 differ-core = { path = "../crates/differ-core" }
