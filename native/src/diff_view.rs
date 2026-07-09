@@ -21,7 +21,7 @@ use differ_core::{
     diff_with_changes, history::History, lang::detect_language, Chunk,
 };
 use gpui::{
-    canvas, div, fill, point, prelude::*, px, rgb, size, Bounds, Context, Div, Entity, Hsla,
+    canvas, div, fill, point, prelude::*, px, rgb, rgba, size, Bounds, Context, Div, Entity, Hsla,
     Pixels, Point, SharedString, Stateful, Subscription, Window,
 };
 use gpui_component::input::{Input, InputEvent, InputState};
@@ -29,9 +29,11 @@ use gpui_component::ActiveTheme;
 
 const ADDED: u32 = 0x3fb950;
 const REMOVED: u32 = 0xf85149;
-// Translucent tints painted over changed lines (low alpha so text stays legible).
-const ADDED_TINT: u32 = 0x3fb95026;
-const REMOVED_TINT: u32 = 0xf8514926;
+// Translucent tints painted over changed lines. NOTE: 8-digit 0xRRGGBBAA — the
+// last byte is alpha, so these MUST be built with rgba() (rgb() drops alpha and
+// truncates to 24-bit, painting a wrong opaque colour).
+const ADDED_TINT: u32 = 0x3fb95033;
+const REMOVED_TINT: u32 = 0xf8514933;
 
 /// A changed line: (line index, byte start, byte end-of-content).
 type ChangedLine = (u32, u32, u32);
@@ -254,9 +256,9 @@ impl Render for DiffView {
             .flex()
             .flex_row()
             .flex_1()
-            .child(self.pane(&self.editor_a, &self.changed_a, rgb(REMOVED_TINT).into()))
+            .child(self.pane(&self.editor_a, &self.changed_a, rgba(REMOVED_TINT).into()))
             .child(div().w(px(1.0)).flex_none().bg(border))
-            .child(self.pane(&self.editor_b, &self.changed_b, rgb(ADDED_TINT).into()));
+            .child(self.pane(&self.editor_b, &self.changed_b, rgba(ADDED_TINT).into()));
 
         let body = div().flex().flex_col().flex_1().child(toolbar).child(editors);
         let mut root = div().flex().flex_row().size_full().bg(bg).child(body);
