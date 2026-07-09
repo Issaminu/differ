@@ -29,7 +29,7 @@ fn main() {
                 window_bounds: Some(WindowBounds::Windowed(bounds)),
                 ..Default::default()
             },
-            |_window, cx| cx.new(|_cx| DiffView::new(SAMPLE_A, SAMPLE_B)),
+            |_window, cx| cx.new(|_cx| DiffView::new(SAMPLE_A, SAMPLE_B, "rust")),
         )
         .expect("failed to open window");
     });
