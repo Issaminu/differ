@@ -75,7 +75,7 @@ impl DiffView {
         let editor_a = mk(a, window, cx);
         let editor_b = mk(b, window, cx);
 
-        let subs = vec![
+        let mut subs = vec![
             cx.subscribe(&editor_a, |this, _e, event: &InputEvent, cx| match event {
                 InputEvent::Change => this.schedule_recompute(cx),
                 InputEvent::Focus => this.focused_a = true,
@@ -87,6 +87,13 @@ impl DiffView {
                 _ => {}
             }),
         ];
+
+        // Flush history to disk on app quit (belt-and-suspenders vs the
+        // drawer-toggle save), so in-memory captures aren't lost on exit.
+        subs.push(cx.on_app_quit(|this, _cx| {
+            history_store::save(&this.history);
+            async move {}
+        }));
 
         let mut view = Self {
             editor_a,
