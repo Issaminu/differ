@@ -1,29 +1,40 @@
-// Two-pane diff view — pivoted onto gpui-component's real editor.
+// Two-pane diff view on gpui-component's editor, with a canvas overlay that
+// paints the diff tints.
 //
-// Each pane is an `InputState` code editor (cursor, selection, caret, IME,
-// syntax highlighting, scrolling, undo/redo all handled by it). We subscribe to
-// each editor's Change event and recompute the diff (via differ-core) to drive
-// the toolbar stats + language + history capture.
+// Each pane is an InputState editor (cursor/selection/caret/IME/syntax/scroll
+// all native). Over each editor we lay an absolutely-positioned `canvas` that
+// paints translucent red/green rects on the changed lines. The canvas paints in
+// the paint phase — after the editor has laid out this frame — and reads the
+// editor's own `range_to_bounds`, so tints are positioned from the editor's
+// real (scroll-correct) layout.
 //
-// NOTE: diff decorations (the red/green tints) are NOT drawn yet — InputState
-// has no decoration API, so they need a highlight overlay/fork (next
-// increment). This trades the tints (temporarily) for a real, non-crashing,
-// fully-editable editor.
+// The editor emits no scroll event, so a lightweight per-frame poll re-renders
+// this view whenever either editor's scroll offset changes (that's what keeps
+// the overlay glued to the text while scrolling). Changed-line ranges are
+// computed on edit and cached, so scrolling never re-diffs or re-clones text.
+
+use std::collections::HashSet;
 
 use crate::history_store;
 use differ_core::{
-    decorations::count_changed_lines, diff_with_changes, history::History, lang::detect_language,
+    decorations::{build_decorations, count_changed_lines, Side},
+    diff_with_changes, history::History, lang::detect_language, Chunk,
 };
 use gpui::{
-    div, prelude::*, px, rgb, Context, Div, Entity, Hsla, SharedString, Stateful, Subscription,
-    Window,
+    canvas, div, fill, point, prelude::*, px, rgb, size, Bounds, Context, Div, Entity, Hsla,
+    Pixels, Point, SharedString, Stateful, Subscription, Window,
 };
 use gpui_component::input::{Input, InputEvent, InputState};
 use gpui_component::ActiveTheme;
 
-// Semantic diff colours (kept explicit; not part of the UI theme palette).
 const ADDED: u32 = 0x3fb950;
 const REMOVED: u32 = 0xf85149;
+// Translucent tints painted over changed lines (low alpha so text stays legible).
+const ADDED_TINT: u32 = 0x3fb95026;
+const REMOVED_TINT: u32 = 0xf8514926;
+
+/// A changed line: (line index, byte start, byte end-of-content).
+type ChangedLine = (u32, u32, u32);
 
 pub struct DiffView {
     editor_a: Entity<InputState>,
@@ -31,6 +42,12 @@ pub struct DiffView {
     language: &'static str,
     /// (added lines on B, removed lines on A).
     stats: (usize, usize),
+    /// Changed lines per side (cached on edit; consumed by the overlay).
+    changed_a: Vec<ChangedLine>,
+    changed_b: Vec<ChangedLine>,
+    /// Last-seen scroll offsets, for the scroll poll.
+    last_scroll_a: Point<Pixels>,
+    last_scroll_b: Point<Pixels>,
     history: History,
     history_open: bool,
     _subs: Vec<Subscription>,
@@ -38,28 +55,38 @@ pub struct DiffView {
 
 impl DiffView {
     pub fn new(a: &str, b: &str, window: &mut Window, cx: &mut Context<Self>) -> Self {
-        let editor_a =
-            cx.new(|cx| InputState::new(window, cx).code_editor("text").line_number(true).default_value(a));
-        let editor_b =
-            cx.new(|cx| InputState::new(window, cx).code_editor("text").line_number(true).default_value(b));
+        let mk = |text: &str, window: &mut Window, cx: &mut Context<Self>| {
+            cx.new(|cx| {
+                InputState::new(window, cx)
+                    .code_editor("text")
+                    .line_number(true)
+                    .soft_wrap(false)
+                    .default_value(text)
+            })
+        };
+        let editor_a = mk(a, window, cx);
+        let editor_b = mk(b, window, cx);
 
-        // Re-diff whenever either editor's content changes.
         let on_change = |this: &mut Self, _e: Entity<InputState>, event: &InputEvent, cx: &mut Context<Self>| {
             if matches!(event, InputEvent::Change) {
                 this.recompute(cx);
                 cx.notify();
             }
         };
-        let subs = vec![
-            cx.subscribe(&editor_a, on_change),
-            cx.subscribe(&editor_b, on_change),
-        ];
+        let subs = vec![cx.subscribe(&editor_a, on_change), cx.subscribe(&editor_b, on_change)];
+
+        // Start the scroll poll that keeps the overlay in sync while scrolling.
+        cx.on_next_frame(window, Self::poll_scroll);
 
         let mut view = Self {
             editor_a,
             editor_b,
             language: "text",
             stats: (0, 0),
+            changed_a: Vec::new(),
+            changed_b: Vec::new(),
+            last_scroll_a: Point::default(),
+            last_scroll_b: Point::default(),
             history: history_store::load(),
             history_open: false,
             _subs: subs,
@@ -68,8 +95,20 @@ impl DiffView {
         view
     }
 
-    /// Recompute diff stats + language from the two editors' current contents,
-    /// push the language to the editors' highlighters, and capture to history.
+    /// Re-render this view when either editor scrolls (the editor emits no
+    /// scroll event). Cheap: two reads + a compare; only notifies on change.
+    /// Reschedules itself every frame.
+    fn poll_scroll(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let sa = self.editor_a.read(cx).scroll_offset();
+        let sb = self.editor_b.read(cx).scroll_offset();
+        if sa != self.last_scroll_a || sb != self.last_scroll_b {
+            self.last_scroll_a = sa;
+            self.last_scroll_b = sb;
+            cx.notify();
+        }
+        cx.on_next_frame(window, Self::poll_scroll);
+    }
+
     fn recompute(&mut self, cx: &mut Context<Self>) {
         let a = self.editor_a.read(cx).value().to_string();
         let b = self.editor_b.read(cx).value().to_string();
@@ -82,6 +121,8 @@ impl DiffView {
             added += count_changed_lines(&b, c.from_b, c.end_b) as usize;
         }
         self.stats = (added, removed);
+        self.changed_a = changed_line_rows(&a, &chunks, Side::A);
+        self.changed_b = changed_line_rows(&b, &chunks, Side::B);
 
         let sample = if b.len() >= a.len() { &b } else { &a };
         let lang = detect_language(sample);
@@ -96,64 +137,70 @@ impl DiffView {
 
     /// A styled toolbar button (caller attaches the click handler).
     fn button(id: &'static str, label: &str, bg: Hsla, fg: Hsla) -> Stateful<Div> {
-        div()
-            .id(id)
-            .flex_none()
-            .px_2()
-            .py_1()
-            .rounded_md()
-            .bg(bg)
-            .text_color(fg)
-            .cursor_pointer()
-            .child(label.to_string())
+        div().id(id).flex_none().px_2().py_1().rounded_md().bg(bg).text_color(fg).cursor_pointer().child(label.to_string())
     }
 
-    /// Right-side history panel: recent captures, click to restore into both
-    /// editors.
-    fn render_drawer(&self, cx: &mut Context<Self>) -> Div {
-        let (sidebar, border, fg, muted) = {
-            let t = cx.theme();
-            (t.sidebar, t.border, t.foreground, t.muted_foreground)
-        };
-        let rows: Vec<Stateful<Div>> = self
-            .history
-            .recent()
-            .map(|e| {
-                let (orig, modif) = (e.original.clone(), e.modified.clone());
-                let preview = if e.preview.trim().is_empty() { "(empty)".to_string() } else { e.preview.clone() };
-                let lang = e.language.to_string();
-                div()
-                    .id(SharedString::from(e.id.clone()))
-                    .flex()
-                    .flex_col()
-                    .gap_1()
-                    .px_3()
-                    .py_2()
-                    .cursor_pointer()
-                    .on_click(cx.listener(move |this, _, window, cx| {
-                        let (o, m) = (orig.clone(), modif.clone());
-                        this.editor_a.update(cx, |ed, cx| ed.set_value(o, window, cx));
-                        this.editor_b.update(cx, |ed, cx| ed.set_value(m, window, cx));
-                        this.history_open = false;
-                        this.recompute(cx); // set_value suppresses Change, so re-diff manually
-                        cx.notify();
-                    }))
-                    .child(div().text_color(fg).child(preview))
-                    .child(div().text_color(muted).text_size(px(11.0)).child(lang))
-            })
-            .collect();
+    /// An editor pane with its diff-tint overlay canvas on top.
+    fn pane(&self, editor: &Entity<InputState>, changed: &[ChangedLine], tint: Hsla) -> Div {
+        let editor_for_paint = editor.clone();
+        let ranges = changed.to_vec();
+        let overlay = canvas(
+            |_bounds, _window, _cx| (),
+            move |bounds, _, window, cx| paint_diff_tints(&editor_for_paint, &ranges, tint, bounds, window, cx),
+        )
+        .absolute()
+        .size_full();
 
         div()
-            .flex()
-            .flex_col()
-            .flex_none()
-            .w(px(300.0))
-            .h_full()
-            .border_l_1()
-            .border_color(border)
-            .bg(sidebar)
-            .child(div().px_3().py_2().text_color(muted).text_size(px(12.0)).child("History"))
-            .child(div().id("history-scroll").flex().flex_col().flex_1().overflow_y_scroll().children(rows))
+            .relative()
+            .flex_1()
+            .overflow_hidden()
+            .child(Input::new(editor).bordered(false).size_full().text_size(px(13.0)))
+            .child(overlay)
+    }
+}
+
+/// Compute the changed lines (index + byte range) for one side.
+fn changed_line_rows(text: &str, chunks: &[Chunk], side: Side) -> Vec<ChangedLine> {
+    let changed: HashSet<u32> = build_decorations(side, chunks, text).changed_lines.into_iter().collect();
+    let mut out = Vec::new();
+    let mut off = 0u32;
+    for (idx, line) in text.split('\n').enumerate() {
+        if changed.contains(&off) {
+            out.push((idx as u32, off, off + line.len() as u32));
+        }
+        off += line.len() as u32 + 1;
+    }
+    out
+}
+
+/// Paint translucent tint rects over the changed lines that are currently
+/// visible. `bounds` is the overlay canvas's rect (== the pane's rect). Line y
+/// positions come from the editor's own layout (scroll-correct).
+fn paint_diff_tints(
+    editor: &Entity<InputState>,
+    changed: &[ChangedLine],
+    tint: Hsla,
+    bounds: Bounds<Pixels>,
+    window: &mut Window,
+    cx: &mut gpui::App,
+) {
+    let state = editor.read(cx);
+    let Some(line_height) = state.line_height() else { return };
+    let visible = state.visible_row_range();
+    for &(idx, s, e) in changed {
+        if let Some(vis) = &visible {
+            if !vis.contains(&(idx as usize)) {
+                continue;
+            }
+        }
+        if let Some(b) = state.range_to_bounds(&((s as usize)..(e as usize))) {
+            let rect = Bounds {
+                origin: point(bounds.origin.x, b.origin.y),
+                size: size(bounds.size.width, line_height),
+            };
+            window.paint_quad(fill(rect, tint));
+        }
     }
 }
 
@@ -182,7 +229,7 @@ impl Render for DiffView {
             .child(div().child(format!("Language: {language}")))
             .child(div().text_color(rgb(ADDED)).child(format!("+{added}")))
             .child(div().text_color(rgb(REMOVED)).child(format!("−{removed}")))
-            .child(div().flex_1()) // spacer
+            .child(div().flex_1())
             .child(Self::button("btn-swap", "Swap", secondary, fg).on_click(cx.listener(|this, _, window, cx| {
                 let a = this.editor_a.read(cx).value();
                 let b = this.editor_b.read(cx).value();
@@ -199,7 +246,7 @@ impl Render for DiffView {
             })))
             .child(Self::button("btn-history", "History", secondary, fg).on_click(cx.listener(|this, _, _window, cx| {
                 this.history_open = !this.history_open;
-                history_store::save(&this.history); // flush to disk on toggle
+                history_store::save(&this.history);
                 cx.notify();
             })));
 
@@ -207,9 +254,9 @@ impl Render for DiffView {
             .flex()
             .flex_row()
             .flex_1()
-            .child(Input::new(&self.editor_a).bordered(false).flex_1().h_full().text_size(px(13.0)))
+            .child(self.pane(&self.editor_a, &self.changed_a, rgb(REMOVED_TINT).into()))
             .child(div().w(px(1.0)).flex_none().bg(border))
-            .child(Input::new(&self.editor_b).bordered(false).flex_1().h_full().text_size(px(13.0)));
+            .child(self.pane(&self.editor_b, &self.changed_b, rgb(ADDED_TINT).into()));
 
         let body = div().flex().flex_col().flex_1().child(toolbar).child(editors);
         let mut root = div().flex().flex_row().size_full().bg(bg).child(body);
@@ -217,5 +264,54 @@ impl Render for DiffView {
             root = root.child(self.render_drawer(cx));
         }
         root
+    }
+}
+
+impl DiffView {
+    /// Right-side history panel: recent captures, click to restore.
+    fn render_drawer(&self, cx: &mut Context<Self>) -> Div {
+        let (sidebar, border, fg, muted) = {
+            let t = cx.theme();
+            (t.sidebar, t.border, t.foreground, t.muted_foreground)
+        };
+        let rows: Vec<Stateful<Div>> = self
+            .history
+            .recent()
+            .map(|e| {
+                let (orig, modif) = (e.original.clone(), e.modified.clone());
+                let preview = if e.preview.trim().is_empty() { "(empty)".to_string() } else { e.preview.clone() };
+                let lang = e.language.to_string();
+                div()
+                    .id(SharedString::from(e.id.clone()))
+                    .flex()
+                    .flex_col()
+                    .gap_1()
+                    .px_3()
+                    .py_2()
+                    .cursor_pointer()
+                    .on_click(cx.listener(move |this, _, window, cx| {
+                        let (o, m) = (orig.clone(), modif.clone());
+                        this.editor_a.update(cx, |ed, cx| ed.set_value(o, window, cx));
+                        this.editor_b.update(cx, |ed, cx| ed.set_value(m, window, cx));
+                        this.history_open = false;
+                        this.recompute(cx);
+                        cx.notify();
+                    }))
+                    .child(div().text_color(fg).child(preview))
+                    .child(div().text_color(muted).text_size(px(11.0)).child(lang))
+            })
+            .collect();
+
+        div()
+            .flex()
+            .flex_col()
+            .flex_none()
+            .w(px(300.0))
+            .h_full()
+            .border_l_1()
+            .border_color(border)
+            .bg(sidebar)
+            .child(div().px_3().py_2().text_color(muted).text_size(px(12.0)).child("History"))
+            .child(div().id("history-scroll").flex().flex_col().flex_1().overflow_y_scroll().children(rows))
     }
 }
