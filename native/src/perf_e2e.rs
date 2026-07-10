@@ -212,6 +212,29 @@ fn e2e_language_override_cycle(cx: &mut TestAppContext) {
 }
 
 #[gpui::test]
+fn e2e_rapid_edits_coalesce(cx: &mut TestAppContext) {
+    // Fire a burst of inserts with NO settle between them, exercising the
+    // generation-guarded debounce: superseded recomputes must drop and only the
+    // final state applies — no panic, no stale diff.
+    let (view, window) = open_diff(cx, "", "");
+    let mut cx = VisualTestContext::from_window(window.into(), cx);
+
+    cx.update(|window, app| {
+        let editor = view.read(app).editor_a();
+        for _ in 0..100 {
+            editor.update(app, |ed, cx| ed.insert("a", window, cx));
+        }
+    });
+    flush(&mut cx);
+
+    // All 100 chars landed and the diff reflects the final state exactly once.
+    assert_eq!(editor_a_len(&mut cx, &view), 100);
+    let (_, removed) = stats(&mut cx, &view);
+    let (changes_a, _) = change_counts(&mut cx, &view);
+    assert!(removed > 0 && changes_a > 0, "final state should show A-only content as a change");
+}
+
+#[gpui::test]
 fn e2e_paste_large_document(cx: &mut TestAppContext) {
     // Start tiny, then paste a big document in one insert (fires Change like a
     // real clipboard paste) — the scenario that previously froze/crashed.
