@@ -23,13 +23,11 @@ fn pct(sorted: &[f64], p: f64) -> f64 {
 /// after each one — mirroring what the app does per InputEvent::Change.
 fn run(name: &str, a: &str, b_init: &str, keystrokes: usize) {
     let mut b = b_init.to_string();
-    let mut cursor = b.len() / 2;
     let _ = compute(a, &b); // warm caches/allocator
 
     let mut times = Vec::with_capacity(keystrokes);
-    for _ in 0..keystrokes {
+    for (cursor, _) in (b.len() / 2..).zip(0..keystrokes) {
         b.insert(cursor, 'x');
-        cursor += 1;
         let t0 = Instant::now();
         std::hint::black_box(compute(a, &b));
         times.push(t0.elapsed().as_secs_f64() * 1000.0);

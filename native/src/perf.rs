@@ -28,6 +28,17 @@ pub fn record(label: &'static str, dur: Duration) {
     }
 }
 
+/// Drop samples gathered during setup before a benchmark's measured phase.
+///
+/// The native harness builds a real window and computes its initial diff before
+/// it starts typing or driving frames. Those costs are useful during startup
+/// profiling, but must not contaminate steady-state figures.
+pub fn reset() {
+    if let Ok(mut m) = SAMPLES.lock() {
+        m.clear();
+    }
+}
+
 /// RAII timer: records `label`'s duration when dropped. `let _s = perf::span(..)`.
 pub struct Span {
     label: &'static str,
@@ -42,7 +53,10 @@ impl Drop for Span {
 
 #[inline]
 pub fn span(label: &'static str) -> Span {
-    Span { label, start: Instant::now() }
+    Span {
+        label,
+        start: Instant::now(),
+    }
 }
 
 fn pct(sorted: &[f64], p: f64) -> f64 {
@@ -60,7 +74,10 @@ pub fn report() {
     }
     let Ok(mut m) = SAMPLES.lock() else { return };
     eprintln!("===== DIFFER PERF REPORT (ms) =====");
-    eprintln!("{:<22} {:>6} {:>8} {:>8} {:>8} {:>8} {:>8}", "label", "n", "mean", "p50", "p95", "p99", "max");
+    eprintln!(
+        "{:<22} {:>6} {:>8} {:>8} {:>8} {:>8} {:>8}",
+        "label", "n", "mean", "p50", "p95", "p99", "max"
+    );
     for (label, v) in m.iter_mut() {
         if v.is_empty() {
             continue;

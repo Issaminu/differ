@@ -38,6 +38,32 @@ cargo test --manifest-path crates/differ-core/Cargo.toml   # diff / pipeline / h
 cargo test --manifest-path native/Cargo.toml               # e2e keystroke harness (real editor path)
 ```
 
+### Headful performance harness
+
+Run the real native window—not a headless surrogate—while it drives a
+large-document scenario and prints p50/p95/p99 timings:
+
+```sh
+scripts/bench-native-headful.sh typing
+scripts/bench-native-headful.sh paint --lines 30000 --changed 50
+scripts/bench-native-headful.sh paste --lines 50000 --paste-lines 50000 --verify
+scripts/bench-native-headful.sh find --lines 50000 --query item_ --verify
+scripts/bench-native-headful.sh replace --lines 50000 --query item_ --replacement entry_ --verify
+```
+
+`paste` inserts a single clipboard-sized, multi-line edit into the real editor
+and waits for the subsequent diff to settle.
+
+`find` opens GPUI's visible SearchPanel and runs its real matcher over the
+large editor. `replace` expands Find & Replace, invokes the panel's normal
+async Replace All path, and waits for its editor change event and Differ's
+resulting diff to settle. `--verify` implies `--quit` and
+returns nonzero unless the live app reports a passing run, making 50k-line
+search/replace soak checks suitable for automation.
+
+The window intentionally stays open after a normal report so the full UI can
+be inspected. Add `--quit` for an automated run without verification.
+
 ### Bundle a `.app`
 
 ```sh

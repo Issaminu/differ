@@ -26,6 +26,12 @@ pub mod pipeline;
 /// inputs).
 pub const INNER_DIFF_BYTE_LIMIT: u32 = 16 * 1024;
 
+/// Character-level highlighting is valuable for a handful of modified hunks,
+/// but becomes visual noise and a substantial CPU cost when a document has
+/// thousands of unrelated line changes. Above this count we retain the full
+/// line-level diff and omit only the intra-line tint pass.
+pub const INNER_DIFF_HUNK_LIMIT: usize = 512;
+
 /// A character-level edit inside a chunk. Offsets are relative to the chunk
 /// start on each side (matching CM-merge's `Chunk.changes` shape).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -82,6 +88,10 @@ fn diff_inner(a: &str, b: &str, with_changes: bool) -> Vec<Chunk> {
     let b_offsets = line_offsets(b);
     let a_bytes = a.as_bytes();
     let b_bytes = b.as_bytes();
+    // `hunks()` is a cheap fresh iterator over the already-computed line diff.
+    // Decide once so noisy documents degrade consistently instead of giving
+    // only the first viewport a different style of highlight.
+    let inner_changes_enabled = with_changes && diff_state.hunks().count() <= INNER_DIFF_HUNK_LIMIT;
 
     // Reuse one Interner across all inner passes — every inner diff calls
     // `clear()` first so capacity is amortised but no leak.
@@ -100,7 +110,7 @@ fn diff_inner(a: &str, b: &str, with_changes: bool) -> Vec<Chunk> {
             let from_b = b_offsets[b_start];
             let end_b = b_offsets[b_end];
 
-            let changes = if with_changes
+            let changes = if inner_changes_enabled
                 && from_a < end_a
                 && from_b < end_b
                 && (end_a - from_a) <= INNER_DIFF_BYTE_LIMIT
@@ -212,6 +222,27 @@ mod tests {
     }
 
     #[test]
+    fn noisy_line_diff_skips_only_inner_highlights() {
+        // Alternating changed/unchanged lines produce one hunk per changed
+        // line. Once the document is too noisy for useful char tints, we still
+        // must keep every line-level hunk for counts and whole-line shading.
+        let mut a = String::new();
+        let mut b = String::new();
+        for i in 0..=(INNER_DIFF_HUNK_LIMIT * 2) {
+            a.push_str(&format!("item {i}\n"));
+            if i % 2 == 0 {
+                b.push_str(&format!("changed {i}\n"));
+            } else {
+                b.push_str(&format!("item {i}\n"));
+            }
+        }
+
+        let chunks = diff_with_changes(&a, &b);
+        assert!(chunks.len() > INNER_DIFF_HUNK_LIMIT);
+        assert!(chunks.iter().all(|chunk| chunk.changes.is_empty()));
+    }
+
+    #[test]
     fn inner_changes_are_within_chunk_bounds() {
         let a = "the quick brown fox\n";
         let b = "the quick red fox\n";
@@ -263,8 +294,16 @@ mod tests {
             let mut prev_end_a = 0u32;
             let mut prev_end_b = 0u32;
             for c in &chunks {
-                assert!(c.from_a >= prev_end_a, "{}: chunk A overlaps previous", spec.name);
-                assert!(c.from_b >= prev_end_b, "{}: chunk B overlaps previous", spec.name);
+                assert!(
+                    c.from_a >= prev_end_a,
+                    "{}: chunk A overlaps previous",
+                    spec.name
+                );
+                assert!(
+                    c.from_b >= prev_end_b,
+                    "{}: chunk B overlaps previous",
+                    spec.name
+                );
                 assert!(c.from_a <= c.end_a && c.from_b <= c.end_b);
                 assert!(c.end_a <= a.len() as u32 && c.end_b <= b.len() as u32);
                 prev_end_a = c.end_a;

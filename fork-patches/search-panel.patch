@@ -1,0 +1,139 @@
+--- a/crates/ui/src/input/search.rs
++++ b/crates/ui/src/input/search.rs
+@@ -3,9 +3,9 @@
+ use std::{ops::Range, rc::Rc};
+
+ use gpui::{
+-    App, AppContext as _, Context, Empty, Entity, FocusHandle, Focusable, Half,
++    App, AppContext as _, Context, Empty, Entity, FocusHandle, Focusable,
+     InteractiveElement as _, IntoElement, ParentElement as _, Pixels, Render, Styled, Subscription,
+-    Window, actions, div, prelude::FluentBuilder as _,
++    Window, actions, div, prelude::FluentBuilder as _, px, rgb,
+ };
+ use ropey::Rope;
+
+@@ -244,8 +244,8 @@
+     }
+
+     pub fn new(editor: Entity<InputState>, window: &mut Window, cx: &mut App) -> Entity<Self> {
+-        let search_input = cx.new(|cx| InputState::new(window, cx));
+-        let replace_input = cx.new(|cx| InputState::new(window, cx));
++        let search_input = cx.new(|cx| InputState::new(window, cx).placeholder("Find"));
++        let replace_input = cx.new(|cx| InputState::new(window, cx).placeholder("Replace"));
+
+         cx.new(|cx| {
+             let _subscriptions =
+@@ -266,6 +266,9 @@
+                 search_input,
+                 replace_input,
+                 case_insensitive: true,
++                // Start with the compact find bar. The disclosure beside it
++                // makes replacement an explicit expansion instead of taking
++                // vertical space before it is needed.
+                 replace_mode: false,
+                 matcher: SearchMatcher::new(),
+                 open: true,
+@@ -469,26 +472,27 @@
+
+         v_flex()
+             .id("search-panel")
+-            .occlude()
++            // This is a structural editor header, not an overlay. Rendering it
++            // in normal flex flow reserves vertical space so code never sits
++            // underneath or alongside the controls.
++            .flex_none()
++            .w_full()
+             .track_focus(&self.focus_handle(cx))
+             .key_context(CONTEXT)
+             .on_action(cx.listener(Self::on_action_enter))
+             .on_action(cx.listener(Self::on_action_escape))
+             .on_action(cx.listener(Self::on_action_tab))
+             .font_family(cx.theme().font_family.clone())
+-            .items_center()
+-            .py_2()
+-            .px_3()
+-            .w_full()
+-            .gap_1()
+-            .bg(cx.theme().tokens.popover)
++            .gap(px(4.0))
++            .px_2()
++            .py_1()
++            .bg(rgb(0x15171c))
+             .border_b_1()
+-            .rounded(cx.theme().radius.half())
+             .border_color(cx.theme().border)
+             .child(
+                 h_flex()
+                     .w_full()
+-                    .gap_2()
++                    .gap_1()
+                     .child(
+                         div()
+                             .flex()
+@@ -526,23 +530,13 @@
+                             Button::new("replace-mode")
+                                 .xsmall()
+                                 .ghost()
+-                                .icon(IconName::Replace)
+-                                .selected(self.replace_mode)
+-                                .on_click(cx.listener(|this, _, window, cx| {
++                                .icon(if self.replace_mode {
++                                    IconName::ChevronUp
++                                } else {
++                                    IconName::ChevronDown
++                                })
++                                .on_click(cx.listener(|this, _, _, cx| {
+                                     this.replace_mode = !this.replace_mode;
+-                                    if this.replace_mode {
+-                                        this.replace_input
+-                                            .read(cx)
+-                                            .focus_handle
+-                                            .clone()
+-                                            .focus(window, cx);
+-                                    } else {
+-                                        this.search_input
+-                                            .read(cx)
+-                                            .focus_handle
+-                                            .clone()
+-                                            .focus(window, cx);
+-                                    }
+                                     cx.notify();
+                                 })),
+                         )
+@@ -575,7 +569,6 @@
+                             .text_left()
+                             .min_w_16(),
+                     )
+-                    .child(div().w_7())
+                     .child(
+                         Button::new("close")
+                             .xsmall()
+@@ -590,7 +583,7 @@
+                 this.child(
+                     h_flex()
+                         .w_full()
+-                        .gap_2()
++                        .gap_1()
+                         .child(
+                             Input::new(&self.replace_input)
+                                 .focus_bordered(false)
+@@ -600,7 +593,8 @@
+                         )
+                         .child(
+                             Button::new("replace-one")
+-                                .small()
++                                .xsmall()
++                                .ghost()
+                                 .label(t!("Input.Replace"))
+                                 .disabled(!has_matches)
+                                 .on_click(cx.listener(|this, _, window, cx| {
+@@ -609,7 +603,8 @@
+                         )
+                         .child(
+                             Button::new("replace-all")
+-                                .small()
++                                .xsmall()
++                                .ghost()
+                                 .label(t!("Input.Replace All"))
+                                 .disabled(!has_matches)
+                                 .on_click(cx.listener(|this, _, window, cx| {

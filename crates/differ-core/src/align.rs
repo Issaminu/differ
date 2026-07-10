@@ -105,7 +105,7 @@ mod tests {
 
     /// Collect the non-spacer line indices for one side, in row order.
     fn side_indices(rows: &[AlignedRow], pick: impl Fn(&AlignedRow) -> Option<u32>) -> Vec<u32> {
-        rows.iter().filter_map(|r| pick(r)).collect()
+        rows.iter().filter_map(pick).collect()
     }
 
     #[test]

@@ -125,10 +125,8 @@ pub fn detect_language(text: &str) -> &'static str {
     }
 
     let trimmed = text.trim();
-    if trimmed.starts_with('{') || trimmed.starts_with('[') {
-        if serde_json::from_str::<serde_json::Value>(trimmed).is_ok() {
-            return "json";
-        }
+    if (trimmed.starts_with('{') || trimmed.starts_with('[')) && serde_json::from_str::<serde_json::Value>(trimmed).is_ok() {
+        return "json";
     }
 
     let header = head(text, FAST_WIN_HEADER_BYTES);

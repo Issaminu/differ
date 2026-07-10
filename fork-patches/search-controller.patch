@@ -1,0 +1,102 @@
+--- a/crates/ui/src/input/mod.rs
++++ b/crates/ui/src/input/mod.rs
+@@ -20,7 +20,7 @@
+ mod otp_input;
+ pub(crate) mod popovers;
+ mod rope_ext;
+-mod search;
++pub mod search;
+ mod selection;
+ mod state;
+
+--- a/crates/ui/src/input/search.rs
++++ b/crates/ui/src/input/search.rs
+@@ -166,7 +166,7 @@
+     }
+ }
+
+-pub(super) struct SearchPanel {
++pub struct SearchPanel {
+     editor: Entity<InputState>,
+     search_input: Entity<InputState>,
+     replace_input: Entity<InputState>,
+@@ -218,6 +218,23 @@
+         self.search_panel = Some(search_panel);
+         cx.notify();
+     }
++
++    /// Open the built-in SearchPanel and return its handle. The panel must be
++    /// configured after this InputState update returns, because SearchPanel
++    /// reads its editor when matching and replacing.
++    pub fn open_search_panel(
++        &mut self,
++        window: &mut Window,
++        cx: &mut Context<Self>,
++    ) -> Option<Entity<SearchPanel>> {
++        self.on_action_search(&Search, window, cx);
++        self.search_panel.clone()
++    }
++
++    /// Access an already-open built-in SearchPanel, if any.
++    pub fn search_panel(&self) -> Option<Entity<SearchPanel>> {
++        self.search_panel.clone()
++    }
+ }
+
+ impl SearchPanel {
+@@ -316,6 +333,35 @@
+         cx.notify();
+     }
+
++    /// Programmatic counterpart to typing into the visible Find field.
++    pub fn set_query(
++        &mut self,
++        query: &str,
++        window: &mut Window,
++        cx: &mut Context<Self>,
++    ) {
++        self.search_input
++            .update(cx, |input, cx| input.set_value(query, window, cx));
++        self.update_search_query(cx);
++    }
++
++    /// Programmatic counterpart to typing into the visible Replace field.
++    pub fn set_replacement(
++        &mut self,
++        replacement: &str,
++        window: &mut Window,
++        cx: &mut Context<Self>,
++    ) {
++        self.replace_input
++            .update(cx, |input, cx| input.set_value(replacement, window, cx));
++    }
++
++    /// Expand or collapse the normal Find & Replace disclosure.
++    pub fn set_replace_mode(&mut self, enabled: bool, cx: &mut Context<Self>) {
++        self.replace_mode = enabled && self.replaceable(cx);
++        cx.notify();
++    }
++
+     fn replaceable(&self, cx: &App) -> bool {
+         let editor = self.editor.read(cx);
+         editor.replaceable
+@@ -371,6 +417,10 @@
+         }
+
+         Some(&self.matcher)
++    }
++
++    pub fn match_count(&self) -> usize {
++        self.matcher.len()
+     }
+
+     fn replace_next(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+@@ -412,7 +462,7 @@
+         }
+     }
+
+-    fn replace_all(&mut self, window: &mut Window, cx: &mut Context<Self>) {
++    pub fn replace_all(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+         if !self.replaceable(cx) {
+             self.replace_mode = false;
+             cx.notify();

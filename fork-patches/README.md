@@ -22,6 +22,24 @@ change vs upstream `gpui-component` **rev `2587914`**:
 - `workspace-Cargo.toml` → `Cargo.toml`
   - pins the zed/gpui deps to the exact rev `native/` uses, so gpui resolves to
     a single version (a skew breaks `Entity<InputState>` across the boundary)
+- `search-panel.patch` → `crates/ui/src/input/search.rs`
+  - keeps Cmd-F as a solid editor-top Find bar that reserves document space;
+    its disclosure expands the optional Replace row
+- `search-controller.patch` → `crates/ui/src/input/{mod,search}.rs`
+  - exposes the existing `SearchPanel` controller for commands and the
+    headful stress harness; it drives the component's matcher and async
+    Replace All path rather than carrying a second search implementation
+- `combobox-selection.patch` → `crates/ui/src/combobox.rs`
+  - fixes single-select commits after filtering when the old and new results
+    happen to occupy the same filtered row index
+- `combobox-focus-outline.patch` → `crates/ui/src/combobox.rs`
+  - respects `appearance(false)` when the combobox is open, so custom trigger
+    chrome does not acquire the component theme's unrelated focus border
+- `icons/*.svg` → `crates/assets/assets/icons/`
+  - adds a filled locked state and a clear two-way arrow for swapping panes
+- `icons/languages/*.svg` → `crates/assets/assets/icons/languages/`
+  - adds the CC0 Simple Icons brand marks already used by the original web
+    language picker, plus neutral Auto/code fallbacks for unbranded grammars
 
 ## Recreate the fork
 

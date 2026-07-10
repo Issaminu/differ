@@ -24,8 +24,10 @@ use gpui::{
 
 // Temporary sample content so the view has something to diff until file/paste
 // input is wired up. Side B (shown) changes lines 2 and 5.
-const SAMPLE_A: &str = "fn main() {\n    let x = 1;\n    let y = 2;\n    println!(\"{}\", x);\n    done();\n}\n";
-const SAMPLE_B: &str = "fn main() {\n    let x = 10;\n    let y = 2;\n    println!(\"{}\", x);\n    finish();\n}\n";
+const SAMPLE_A: &str =
+    "fn main() {\n    let x = 1;\n    let y = 2;\n    println!(\"{}\", x);\n    done();\n}\n";
+const SAMPLE_B: &str =
+    "fn main() {\n    let x = 10;\n    let y = 2;\n    println!(\"{}\", x);\n    finish();\n}\n";
 
 /// When `DIFFER_BENCH_LINES=<n>` is set, generate an n-line document pair for
 /// the perf harness; otherwise `None`. `DIFFER_BENCH_CHANGED=<pct>` (default 30)
@@ -38,7 +40,7 @@ fn bench_docs() -> Option<(String, String)> {
         .and_then(|s| s.parse().ok())
         .unwrap_or(30)
         .min(100);
-    let step = if pct == 0 { usize::MAX } else { (100 / pct).max(1) };
+    let step = 100usize.checked_div(pct).unwrap_or(usize::MAX).max(1);
     let mut a = String::with_capacity(n * 40);
     let mut b = String::with_capacity(n * 40);
     for i in 0..n {
@@ -99,7 +101,10 @@ fn main() {
                 titlebar: Some(TitlebarOptions {
                     title: Some("Differ".into()),
                     appears_transparent: true,
-                    traffic_light_position: Some(point(px(20.0), px(24.0))),
+                    // AppKit interprets this as the control origin, not its
+                    // centre. Keep the lights optically centred in the 48px
+                    // titlebar instead of sagging into the content below.
+                    traffic_light_position: Some(point(px(20.0), px(16.0))),
                 }),
                 ..Default::default()
             },

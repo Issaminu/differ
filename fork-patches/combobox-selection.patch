@@ -1,0 +1,59 @@
+--- a/crates/ui/src/combobox.rs
++++ b/crates/ui/src/combobox.rs
+@@ -164,8 +164,15 @@
+
+                         let changes = Self::selection_changes(multiple, &selection, ix, &item);
+
+-                        let before_indices: Vec<IndexPath> =
+-                            selection.iter().map(|(ix, _)| *ix).collect();
++                        // Searchable delegates can remap an item's index while
++                        // filtering. Compare stable item values, not transient
++                        // filtered index paths, so selecting a different item
++                        // at the same visible row still emits Change and closes
++                        // a single-select combobox.
++                        let before_values: Vec<_> = selection
++                            .iter()
++                            .map(|(_, item)| item.value().clone())
++                            .collect();
+
+                         // on_will_change is called directly — entity-handle access would
+                         // re-enter the ListState lock that defer_in holds for this callback.
+@@ -174,9 +181,11 @@
+                             .delegate
+                             .on_will_change(&mut selection, &changes);
+
+-                        let after_indices: Vec<IndexPath> =
+-                            selection.iter().map(|(ix, _)| *ix).collect();
+-                        let changed = before_indices != after_indices;
++                        let after_values: Vec<_> = selection
++                            .iter()
++                            .map(|(_, item)| item.value().clone())
++                            .collect();
++                        let changed = before_values != after_values;
+                         let should_close = changed && !multiple;
+
+                         let new_selection = weak_confirm.update(cx, |this, cx| {
+@@ -395,7 +404,10 @@
+         let changes = Self::selection_changes(self.multiple, &self.state.selection, ix, &item);
+
+         let mut selection = self.state.selection.clone();
+-        let before_indices: Vec<IndexPath> = selection.iter().map(|(ix, _)| *ix).collect();
++        let before_values: Vec<_> = selection
++            .iter()
++            .map(|(_, item)| item.value().clone())
++            .collect();
+
+         self.state.list.update(cx, |list, _cx| {
+             list.delegate_mut()
+@@ -403,8 +415,11 @@
+                 .on_will_change(&mut selection, &changes);
+         });
+
+-        let after_indices: Vec<IndexPath> = selection.iter().map(|(ix, _)| *ix).collect();
+-        let changed = before_indices != after_indices;
++        let after_values: Vec<_> = selection
++            .iter()
++            .map(|(_, item)| item.value().clone())
++            .collect();
++        let changed = before_values != after_values;
+         let should_close = changed && !self.multiple;

@@ -1,0 +1,14 @@
+--- a/crates/ui/src/combobox.rs
++++ b/crates/ui/src/combobox.rs
+@@ -955,7 +955,10 @@
+         .input_size(size)
+         .input_text_size(size)
+         .refine_style(style)
+-        .when(outline_visible, |this| this.focused_border(cx))
++        // `appearance(false)` delegates all trigger chrome to the caller. A
++        // focused-border here would wrap a custom trigger in an unrelated
++        // theme ring (especially visible while its popup is open).
++        .when(outline_visible && appearance, |this| this.focused_border(cx))
+         .when(allow_open, |this| {
+             this.when_some(toggle_handler, |this, handler| this.on_click(handler))
+         })

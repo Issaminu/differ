@@ -29,7 +29,11 @@ const DEBOUNCE_FLUSH: Duration = Duration::from_millis(60);
 /// forwarder that dereferences the real `NSView`, which the headless test
 /// platform doesn't back. The editor construction + recompute path exercised
 /// here doesn't need Root's overlay layers.
-fn open_diff(cx: &mut TestAppContext, a: &str, b: &str) -> (Entity<DiffView>, WindowHandle<DiffView>) {
+fn open_diff(
+    cx: &mut TestAppContext,
+    a: &str,
+    b: &str,
+) -> (Entity<DiffView>, WindowHandle<DiffView>) {
     let a = a.to_string();
     let b = b.to_string();
     let mut view: Option<Entity<DiffView>> = None;
@@ -126,10 +130,17 @@ fn e2e_typing_on_large_document_stays_stable(cx: &mut TestAppContext) {
     let elapsed = t.elapsed();
 
     // Survived without panicking, edits landed, diff still reflects changes.
-    assert_eq!(editor_a_len(&mut cx, &view), start_len + 50, "all 50 keystrokes should have landed");
+    assert_eq!(
+        editor_a_len(&mut cx, &view),
+        start_len + 50,
+        "all 50 keystrokes should have landed"
+    );
     let (added, _) = stats(&mut cx, &view);
     let (changes_a, _) = change_counts(&mut cx, &view);
-    assert!(added > 0 && changes_a > 0, "typed edits should register as changes");
+    assert!(
+        added > 0 && changes_a > 0,
+        "typed edits should register as changes"
+    );
 
     eprintln!("[e2e] 50 keystrokes @ 8k lines settled in {elapsed:?} (virtual clock)");
 }
@@ -160,7 +171,10 @@ fn e2e_editing_side_b_registers_changes(cx: &mut TestAppContext) {
     // Edit the right pane -> a change should register on the B side.
     type_into_b(&mut cx, &view, "// changed on B");
     let (_, changes_b) = change_counts(&mut cx, &view);
-    assert!(changes_b > 0, "editing B should introduce a change on the B side");
+    assert!(
+        changes_b > 0,
+        "editing B should introduce a change on the B side"
+    );
 }
 
 #[gpui::test]
@@ -202,12 +216,18 @@ fn e2e_language_override_cycle(cx: &mut TestAppContext) {
     // First cycle past Auto lands on Plain Text ("text"), which drives the
     // effective language and disables highlighting.
     cx.update(|_, app| view.update(app, |v, cx| v.cycle_language_for_test(cx)));
-    assert_eq!(cx.update(|_, app| view.read(app).manual_language()), Some("text"));
+    assert_eq!(
+        cx.update(|_, app| view.read(app).manual_language()),
+        Some("text")
+    );
     assert_eq!(cx.update(|_, app| view.read(app).language()), "text");
 
     // Next cycle lands on Rust.
     cx.update(|_, app| view.update(app, |v, cx| v.cycle_language_for_test(cx)));
-    assert_eq!(cx.update(|_, app| view.read(app).manual_language()), Some("rust"));
+    assert_eq!(
+        cx.update(|_, app| view.read(app).manual_language()),
+        Some("rust")
+    );
     assert_eq!(cx.update(|_, app| view.read(app).language()), "rust");
 }
 
@@ -231,7 +251,10 @@ fn e2e_rapid_edits_coalesce(cx: &mut TestAppContext) {
     assert_eq!(editor_a_len(&mut cx, &view), 100);
     let (_, removed) = stats(&mut cx, &view);
     let (changes_a, _) = change_counts(&mut cx, &view);
-    assert!(removed > 0 && changes_a > 0, "final state should show A-only content as a change");
+    assert!(
+        removed > 0 && changes_a > 0,
+        "final state should show A-only content as a change"
+    );
 }
 
 #[gpui::test]
@@ -250,7 +273,10 @@ fn e2e_paste_large_document(cx: &mut TestAppContext) {
     // pasted content lives only on side A, so it shows up as "removed".
     let (added, removed) = stats(&mut cx, &view);
     let (changes_a, _) = change_counts(&mut cx, &view);
-    assert!(added + removed > 1_000, "big paste should register a large diff (stats={added},{removed})");
+    assert!(
+        added + removed > 1_000,
+        "big paste should register a large diff (stats={added},{removed})"
+    );
     assert!(changes_a > 0);
     eprintln!("[e2e] 12k-line paste settled in {elapsed:?} (virtual clock)");
 }

@@ -299,7 +299,7 @@ impl DiffModel {
     pub fn goto_prev_change(&mut self) -> bool {
         let side = self.active;
         let cur = self.cursor(side) as u32;
-        match self.chunks.iter().map(|c| Self::chunk_start(side, c)).filter(|&s| s < cur).last() {
+        match self.chunks.iter().map(|c| Self::chunk_start(side, c)).rfind(|&s| s < cur) {
             Some(t) => {
                 self.set_cursor(side, t as usize);
                 true

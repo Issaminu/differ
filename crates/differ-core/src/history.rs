@@ -70,11 +70,7 @@ pub fn decide(last: Option<&HistoryEntry>, original: &str, modified: &str, now_m
 }
 
 fn diff_abs(a: usize, b: usize) -> usize {
-    if a >= b {
-        a - b
-    } else {
-        b - a
-    }
+    a.abs_diff(b)
 }
 
 fn edges_match(a: &str, b: &str, window: usize) -> bool {

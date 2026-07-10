@@ -31,8 +31,23 @@ cp "$REPO/fork-patches/state.rs"             "$DEST/crates/ui/src/input/state.rs
 cp "$REPO/fork-patches/element.rs"           "$DEST/crates/ui/src/input/element.rs"
 cp "$REPO/fork-patches/text_wrapper.rs"      "$DEST/crates/ui/src/input/display_map/text_wrapper.rs"
 cp "$REPO/fork-patches/workspace-Cargo.toml" "$DEST/Cargo.toml"
+# Keep the editor search UI compact and local to its pane. This is a source
+# patch (rather than an untracked vendor edit) so clean checkouts reproduce it.
+patch -d "$DEST" -p1 < "$REPO/fork-patches/search-panel.patch"
+# Expose the existing SearchPanel controller so the real-window stress harness
+# can drive its matcher and async Replace All path without reimplementing it.
+patch -d "$DEST" -p1 < "$REPO/fork-patches/search-controller.patch"
+# A searchable combobox must compare selected values, not filtered row indices.
+patch -d "$DEST" -p1 < "$REPO/fork-patches/combobox-selection.patch"
+# A custom, chrome-free trigger must not receive the combobox's theme focus
+# border while its popup is open.
+patch -d "$DEST" -p1 < "$REPO/fork-patches/combobox-focus-outline.patch"
 # Extra toolbar icons (Lucide, MIT) not in upstream's set — become IconName
 # variants via the icon_named! glob + are embedded by gpui-component-assets.
 cp "$REPO"/fork-patches/icons/*.svg          "$DEST/crates/assets/assets/icons/"
+# Brand marks used by the searchable language picker. They are referenced by
+# path, so nested assets do not need generated IconName variants.
+mkdir -p "$DEST/crates/assets/assets/icons/languages"
+cp "$REPO"/fork-patches/icons/languages/*.svg "$DEST/crates/assets/assets/icons/languages/"
 
 echo "Done. 'cargo build --manifest-path native/Cargo.toml' should now build against the fork."
