@@ -36,6 +36,8 @@ const CHAR_ALPHA: u32 = 0x66;
 /// Coalesce keystroke bursts; the diff runs on a background thread so typing
 /// never blocks — this just avoids redundant background work.
 const RECOMPUTE_DEBOUNCE: Duration = Duration::from_millis(30);
+/// History dedupe/capture is O(document); debounce it well past active typing.
+const HISTORY_DEBOUNCE: Duration = Duration::from_millis(1000);
 
 // Keyboard-dispatchable actions (bound in main.rs).
 gpui::actions!(
@@ -88,6 +90,8 @@ pub struct DiffView {
     font_size: f32,
     stats: (usize, usize),
     recompute_gen: u64,
+    /// Debounce guard for off-hot-path history capture (see schedule_history_capture).
+    history_gen: u64,
     /// Line index of each change per side (aligned by index) + current cursor.
     changes_a: Vec<u32>,
     changes_b: Vec<u32>,
@@ -152,6 +156,7 @@ impl DiffView {
                 .unwrap_or(DEFAULT_FONT_SIZE),
             stats: (0, 0),
             recompute_gen: 0,
+            history_gen: 0,
             changes_a: Vec::new(),
             changes_b: Vec::new(),
             current_change: 0,
@@ -167,7 +172,56 @@ impl DiffView {
             _subs: subs,
         };
         view.recompute(cx);
+        view.maybe_start_stress(window, cx);
         view
+    }
+
+    /// Headful perf harness: when `DIFFER_STRESS=<n>` is set, auto-type `n`
+    /// characters into pane A on an ~8ms cadence (faster than a human, so the
+    /// debounce coalesces like real fast typing), then print the perf report
+    /// and quit. Runs inside the real render/paint loop, so the numbers reflect
+    /// true end-to-end cost. No-op unless the env var is set.
+    fn maybe_start_stress(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(total) = std::env::var("DIFFER_STRESS")
+            .ok()
+            .map(|s| s.parse::<usize>().unwrap_or(2000))
+        else {
+            return;
+        };
+        // Cadence between keystrokes. Default 40ms is just over the 30ms
+        // recompute debounce, so each keystroke actually applies (measures the
+        // real per-edit cost); set lower to stress coalescing instead.
+        let cadence = std::env::var("DIFFER_STRESS_MS")
+            .ok()
+            .and_then(|s| s.parse::<u64>().ok())
+            .unwrap_or(40);
+        eprintln!("[stress] starting: {total} keystrokes @ {cadence}ms");
+        cx.spawn_in(window, async move |this, cx| {
+            for i in 0..total {
+                cx.background_executor().timer(Duration::from_millis(cadence)).await;
+                let ch = if i % 40 == 39 { "\n" } else { "x" };
+                if this
+                    .update_in(cx, |this, window, cx| {
+                        this.editor_a.update(cx, |ed, cx| ed.insert(ch, window, cx));
+                    })
+                    .is_err()
+                {
+                    eprintln!("[stress] aborted at {i} (view gone)");
+                    return;
+                }
+                if i % 200 == 0 {
+                    eprintln!("[stress] {i}/{total}");
+                }
+            }
+            eprintln!("[stress] done typing, settling");
+            // Let the final recompute settle, then report and quit.
+            cx.background_executor().timer(Duration::from_millis(400)).await;
+            let _ = this.update(cx, |_this, cx| {
+                crate::perf::report();
+                cx.quit();
+            });
+        })
+        .detach();
     }
 
     /// Recompute the diff off the main thread, then apply on the main thread.
@@ -211,6 +265,7 @@ impl DiffView {
 
     /// Apply a computed diff: stats, language, in-editor tints, history.
     fn apply_compute(&mut self, comp: DiffCompute, a: &str, b: &str, cx: &mut Context<Self>) {
+        let _s = crate::perf::span("apply_compute");
         self.stats = (comp.added, comp.removed);
         self.lines_a = a.split('\n').count();
         self.lines_b = b.split('\n').count();
@@ -223,13 +278,41 @@ impl DiffView {
         self.detected_language = comp.language;
         self.apply_language(cx);
 
-        let ha = to_highlights(&comp.tints_a, REMOVED);
-        let hb = to_highlights(&comp.tints_b, ADDED);
-        self.editor_a.update(cx, |ed, cx| ed.set_diff_highlights(ha, cx));
-        self.editor_b.update(cx, |ed, cx| ed.set_diff_highlights(hb, cx));
+        let (ha, hb) = {
+            let _s = crate::perf::span("to_highlights");
+            (to_highlights(&comp.tints_a, REMOVED), to_highlights(&comp.tints_b, ADDED))
+        };
+        {
+            let _s = crate::perf::span("set_diff_highlights");
+            self.editor_a.update(cx, |ed, cx| ed.set_diff_highlights(ha, cx));
+            self.editor_b.update(cx, |ed, cx| ed.set_diff_highlights(hb, cx));
+        }
 
-        self.history.capture(a, b, self.language, history_store::now_ms());
+        self.schedule_history_capture(a, b, cx);
         cx.notify();
+    }
+
+    /// Capture into history off the hot path. Dedupe hashing is O(document) and
+    /// was measured at ~2.5-5ms per apply on a 15k-line doc — far too costly to
+    /// run on every recompute. Debounce it ~1s after the last edit (matching the
+    /// original web app), so it runs once per typing pause instead.
+    fn schedule_history_capture(&mut self, a: &str, b: &str, cx: &mut Context<Self>) {
+        self.history_gen = self.history_gen.wrapping_add(1);
+        let generation = self.history_gen;
+        let a = a.to_string();
+        let b = b.to_string();
+        let lang = self.language;
+        cx.spawn(async move |this, cx| {
+            cx.background_executor().timer(HISTORY_DEBOUNCE).await;
+            let _ = this.update(cx, |this, _cx| {
+                if this.history_gen != generation {
+                    return; // superseded by a newer edit
+                }
+                let _s = crate::perf::span("history_capture");
+                this.history.capture(&a, &b, lang, history_store::now_ms());
+            });
+        })
+        .detach();
     }
 
     /// Set the editors' syntax to the effective language (manual override, else
@@ -571,6 +654,7 @@ fn to_highlights(tints: &[Tint], base: u32) -> Vec<(Range<usize>, HighlightStyle
 
 impl Render for DiffView {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let _s = crate::perf::span("render_build");
         let (added, removed) = self.stats;
         let language = self.language;
         let (bg, bar, border, fg, muted, secondary, mono) = {

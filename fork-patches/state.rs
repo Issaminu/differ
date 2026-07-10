@@ -756,14 +756,25 @@ impl InputState {
         &self,
         range: &std::ops::Range<usize>,
     ) -> Vec<(std::ops::Range<usize>, gpui::HighlightStyle)> {
-        self.diff_highlights
-            .iter()
-            .filter_map(|(r, style)| {
-                let start = r.start.max(range.start);
-                let end = r.end.min(range.end);
-                (start < end).then(|| (start..end, *style))
-            })
-            .collect()
+        // `diff_highlights` are non-overlapping and sorted by offset (the diff
+        // pipeline emits them in order), so binary-search to the first span that
+        // could intersect and stop once we pass the range. This keeps per-line
+        // paint cost O(spans-in-view) instead of O(all-spans) — important when a
+        // large diff has thousands of tinted spans.
+        let hs = &self.diff_highlights;
+        let start_idx = hs.partition_point(|(r, _)| r.end <= range.start);
+        let mut out = Vec::new();
+        for (r, style) in &hs[start_idx..] {
+            if r.start >= range.end {
+                break;
+            }
+            let start = r.start.max(range.start);
+            let end = r.end.min(range.end);
+            if start < end {
+                out.push((start..end, *style));
+            }
+        }
+        out
     }
 
     /// Set placeholder

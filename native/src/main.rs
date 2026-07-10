@@ -7,6 +7,7 @@
 
 mod diff_view;
 mod history_store;
+mod perf;
 #[cfg(test)]
 mod perf_e2e;
 
@@ -25,6 +26,31 @@ use gpui::{
 // input is wired up. Side B (shown) changes lines 2 and 5.
 const SAMPLE_A: &str = "fn main() {\n    let x = 1;\n    let y = 2;\n    println!(\"{}\", x);\n    done();\n}\n";
 const SAMPLE_B: &str = "fn main() {\n    let x = 10;\n    let y = 2;\n    println!(\"{}\", x);\n    finish();\n}\n";
+
+/// When `DIFFER_BENCH_LINES=<n>` is set, generate an n-line document pair for
+/// the perf harness; otherwise `None`. `DIFFER_BENCH_CHANGED=<pct>` (default 30)
+/// controls what fraction of lines differ, so the harness can stress a big,
+/// tint-heavy diff (many highlighted lines in the viewport), not just a couple.
+fn bench_docs() -> Option<(String, String)> {
+    let n: usize = std::env::var("DIFFER_BENCH_LINES").ok()?.parse().ok()?;
+    let pct: usize = std::env::var("DIFFER_BENCH_CHANGED")
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(30)
+        .min(100);
+    let step = if pct == 0 { usize::MAX } else { (100 / pct).max(1) };
+    let mut a = String::with_capacity(n * 40);
+    let mut b = String::with_capacity(n * 40);
+    for i in 0..n {
+        a.push_str(&format!("fn item_{i}(x: i32) -> i32 {{ x + {i} }}\n"));
+        if i % step == 0 {
+            b.push_str(&format!("fn item_{i}(y: i64) -> i64 {{ y * {i} }}\n"));
+        } else {
+            b.push_str(&format!("fn item_{i}(x: i32) -> i32 {{ x + {i} }}\n"));
+        }
+    }
+    Some((a, b))
+}
 
 fn main() {
     let app = gpui_platform::application();
@@ -55,6 +81,11 @@ fn main() {
             KeyBinding::new("cmd-0", ResetFontSize, None),
         ]);
         cx.activate(true);
+
+        // Bench harness: DIFFER_BENCH_LINES=<n> preloads an n-line document pair
+        // instead of the tiny sample (paired with DIFFER_STRESS for auto-typing).
+        let (doc_a, doc_b) =
+            bench_docs().unwrap_or_else(|| (SAMPLE_A.to_string(), SAMPLE_B.to_string()));
 
         let bounds = Bounds::centered(None, size(px(900.0), px(600.0)), cx);
         cx.open_window(
@@ -88,7 +119,7 @@ fn main() {
 
                 // gpui-component's editor requires the window's first layer to
                 // be a gpui_component::Root (it hosts theme + overlay layers).
-                let view = cx.new(|cx| DiffView::new(SAMPLE_A, SAMPLE_B, window, cx));
+                let view = cx.new(|cx| DiffView::new(&doc_a, &doc_b, window, cx));
                 let root_view: gpui::AnyView = view.into();
                 cx.new(|cx| gpui_component::Root::new(root_view, window, cx))
             },
