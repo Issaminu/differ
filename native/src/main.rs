@@ -16,7 +16,7 @@ use diff_view::{
     ClearBoth, DiffView, NextChange, OpenFile, PrevChange, SwapSides, ToggleHistory, ToggleSync,
 };
 use gpui::{
-    point, px, size, App, AppContext, Bounds, KeyBinding, TitlebarOptions, WindowBounds,
+    point, px, rgb, size, App, AppContext, Bounds, KeyBinding, TitlebarOptions, WindowBounds,
     WindowOptions,
 };
 
@@ -69,7 +69,17 @@ fn main() {
                 // Dark theme + JetBrains Mono for the editors (falls back to the
                 // system mono if JetBrains Mono isn't installed).
                 gpui_component::Theme::change(gpui_component::ThemeMode::Dark, Some(window), cx);
-                gpui_component::Theme::global_mut(cx).mono_font_family = "JetBrains Mono".into();
+
+                // Align the chrome to the palette the original Differ shipped
+                // with (a faintly-cool near-black + its signature blue accent),
+                // instead of gpui-component's stock neutral dark. The diff tint
+                // greens/reds live in diff_view.rs and already match.
+                let theme = gpui_component::Theme::global_mut(cx);
+                theme.mono_font_family = "JetBrains Mono".into();
+                theme.background = rgb(0x0f1115).into();
+                theme.title_bar = rgb(0x15171c).into();
+                theme.foreground = rgb(0xe6e6e8).into();
+                theme.accent = rgb(0x5b86ff).into();
 
                 // gpui-component's editor requires the window's first layer to
                 // be a gpui_component::Root (it hosts theme + overlay layers).
