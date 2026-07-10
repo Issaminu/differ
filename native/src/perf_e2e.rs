@@ -72,6 +72,15 @@ fn type_into_a(cx: &mut VisualTestContext, view: &Entity<DiffView>, text: &str) 
     flush(cx);
 }
 
+/// Type one string into editor B at the cursor, then let the recompute settle.
+fn type_into_b(cx: &mut VisualTestContext, view: &Entity<DiffView>, text: &str) {
+    cx.update(|window, app| {
+        let editor = view.read(app).editor_b();
+        editor.update(app, |ed, cx| ed.insert(text, window, cx));
+    });
+    flush(cx);
+}
+
 fn stats(cx: &mut VisualTestContext, view: &Entity<DiffView>) -> (usize, usize) {
     cx.update(|_, app| view.read(app).stats())
 }
@@ -131,6 +140,19 @@ fn e2e_edits_introduce_changes(cx: &mut TestAppContext) {
     type_into_a(&mut cx, &view, "// diverged");
     let (changes_a, _) = change_counts(&mut cx, &view);
     assert!(changes_a > 0, "editing A should introduce a change");
+}
+
+#[gpui::test]
+fn e2e_editing_side_b_registers_changes(cx: &mut TestAppContext) {
+    let text = make_lines(300);
+    let (view, window) = open_diff(cx, &text, &text);
+    let mut cx = VisualTestContext::from_window(window.into(), cx);
+    assert_eq!(change_counts(&mut cx, &view), (0, 0));
+
+    // Edit the right pane -> a change should register on the B side.
+    type_into_b(&mut cx, &view, "// changed on B");
+    let (_, changes_b) = change_counts(&mut cx, &view);
+    assert!(changes_b > 0, "editing B should introduce a change on the B side");
 }
 
 #[gpui::test]
