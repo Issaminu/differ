@@ -4,7 +4,85 @@
 
 # Differ
 
-Type in either side, see instant green/red diffs with syntax highlighting and auto language detection. Native macOS shell via [Tauri 2](https://v2.tauri.app/), diff UI via [`@codemirror/merge`](https://codemirror.net/docs/ref/#merge).
+Type in either side, see instant green/red diffs with syntax highlighting and auto language detection.
+
+> **GPUI rewrite in progress.** This branch (`gpui-migration`) replaces the
+> Tauri + web-view shell with a fully native [GPUI](https://gpui.rs) app (Zed's
+> GPU UI framework). The diff engine is a Rust port of the original pipeline;
+> the editor is [gpui-component](https://github.com/longbridge/gpui-component)'s
+> `InputState`, lightly forked to render diff tints inside the editor. The
+> Tauri/web sections further down still describe the app on `main`.
+
+## Native (GPUI) app
+
+Lives in [`native/`](native/); the diff engine + language detection live in
+[`crates/differ-core/`](crates/differ-core/).
+
+### Prerequisites
+
+- macOS 13+ with the Metal toolchain — `xcodebuild -downloadComponent MetalToolchain`
+- Rust (stable)
+
+### Run
+
+```sh
+cargo run --manifest-path native/Cargo.toml
+```
+
+The first build reconstructs the forked editor (see below) and takes a few minutes.
+
+### Test
+
+```sh
+cargo test --manifest-path crates/differ-core/Cargo.toml   # diff / pipeline / history
+cargo test --manifest-path native/Cargo.toml               # e2e keystroke harness (real editor path)
+```
+
+### Bundle a `.app`
+
+```sh
+BUILD=1 scripts/bundle-macos.sh    # -> dist/Differ.app (unsigned; see DISTRIBUTING.md)
+```
+
+### Keyboard shortcuts (native)
+
+| Shortcut | Action |
+|----------|--------|
+| `F8` / `⇧F8` | Next / previous change |
+| `⌘O` | Open a file into the focused pane |
+| `⌘⇧X` | Swap sides |
+| `⌘⇧K` | Clear both editors |
+| `⌘⇧L` | Toggle scroll-lock (sync) |
+| `⌘⇧Y` | Toggle history drawer |
+| `⌘+` / `⌘-` / `⌘0` | Zoom editor font / reset |
+
+### Where things live (native)
+
+| | |
+|---|---|
+| App entry, window, key bindings, theme | [native/src/main.rs](native/src/main.rs) |
+| Two-pane diff view, toolbar, change-map | [native/src/diff_view.rs](native/src/diff_view.rs) |
+| e2e keystroke harness | [native/src/perf_e2e.rs](native/src/perf_e2e.rs) |
+| Diff pipeline (per-edit recompute, tints) | [crates/differ-core/src/pipeline.rs](crates/differ-core/src/pipeline.rs) |
+| Language detection | [crates/differ-core/src/lang.rs](crates/differ-core/src/lang.rs) |
+| History + font-size prefs (on disk) | `~/Library/Application Support/Differ/` |
+
+### The gpui-component fork
+
+The editor is a lightly-forked gpui-component that adds an in-editor
+diff-highlight API, so diff tints render *inside* the editor (composited with
+syntax highlighting) rather than as an overlay. The full crate is vendored but
+gitignored; the changes live in [`fork-patches/`](fork-patches/) and are
+reconstructed by [`scripts/setup-gpui-fork.sh`](scripts/setup-gpui-fork.sh).
+
+### Not yet done
+
+Signing / notarization / auto-update (see [DISTRIBUTING.md](DISTRIBUTING.md)); a
+preferences panel; a live viewport indicator on the change-map.
+
+---
+
+*The sections below describe the Tauri + web app on `main`.*
 
 ## Prerequisites
 
