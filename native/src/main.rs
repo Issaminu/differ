@@ -7,6 +7,8 @@
 
 mod diff_view;
 mod history_store;
+#[cfg(test)]
+mod perf_e2e;
 
 use std::borrow::Cow;
 

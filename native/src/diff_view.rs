@@ -449,6 +449,30 @@ impl DiffView {
             .child(div().px_3().py_2().text_color(muted).text_size(px(12.0)).child("History"))
             .child(div().id("history-scroll").flex().flex_col().flex_1().overflow_y_scroll().children(rows))
     }
+
+    // --- Test-only accessors (used by src/perf_e2e.rs) ---
+
+    #[cfg(test)]
+    pub(crate) fn editor_a(&self) -> Entity<InputState> {
+        self.editor_a.clone()
+    }
+
+    #[cfg(test)]
+    pub(crate) fn editor_b(&self) -> Entity<InputState> {
+        self.editor_b.clone()
+    }
+
+    /// (added, removed) line counts from the last applied diff.
+    #[cfg(test)]
+    pub(crate) fn stats(&self) -> (usize, usize) {
+        self.stats
+    }
+
+    /// Number of change anchors on each side from the last applied diff.
+    #[cfg(test)]
+    pub(crate) fn change_counts(&self) -> (usize, usize) {
+        (self.changes_a.len(), self.changes_b.len())
+    }
 }
 
 /// Map tint spans to editor highlight styles. `base` is a 0xRRGGBB colour;

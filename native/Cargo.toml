@@ -17,3 +17,10 @@ gpui_platform = { git = "https://github.com/zed-industries/zed", rev = "35ffa8f4
 # languages pulls in all grammars for multi-language auto-detection.
 gpui-component = { path = "../vendor/gpui-component/crates/ui", features = ["tree-sitter-languages"] }
 differ-core = { path = "../crates/differ-core" }
+
+# Test-only: enable gpui's test-support so the e2e keystroke harness
+# (src/perf_e2e.rs) can drive the real editor via TestAppContext /
+# VisualTestContext. Dev-dependencies aren't compiled for `cargo build`, so this
+# does NOT add test-support to the shipped binary.
+[dev-dependencies]
+gpui = { git = "https://github.com/zed-industries/zed", rev = "35ffa8f480838257ae9650027cb9847505a0882b", features = ["test-support"] }
