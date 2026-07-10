@@ -23,7 +23,8 @@ use gpui::{
     SharedString, Stateful, Subscription, Window,
 };
 use gpui_component::input::{Input, InputEvent, InputState};
-use gpui_component::ActiveTheme;
+use gpui_component::notification::Notification;
+use gpui_component::{ActiveTheme, WindowExt};
 
 const ADDED: u32 = 0x3fb950;
 const REMOVED: u32 = 0xf85149;
@@ -278,16 +279,29 @@ impl DiffView {
         let side_a = self.focused_a;
         let rx = cx.prompt_for_paths(PathPromptOptions { files: true, directories: false, multiple: false, prompt: None });
         cx.spawn_in(window, async move |this, cx| {
-            if let Ok(Ok(Some(paths))) = rx.await {
-                if let Some(path) = paths.into_iter().next() {
-                    if let Ok(content) = std::fs::read_to_string(&path) {
-                        let _ = this.update_in(cx, |this, window, cx| {
-                            let ed = if side_a { this.editor_a.clone() } else { this.editor_b.clone() };
-                            ed.update(cx, |ed, cx| ed.set_value(content, window, cx));
-                            this.recompute(cx);
-                            cx.notify();
-                        });
-                    }
+            let Ok(Ok(Some(paths))) = rx.await else {
+                return; // dialog cancelled / dismissed
+            };
+            let Some(path) = paths.into_iter().next() else {
+                return;
+            };
+            match std::fs::read_to_string(&path) {
+                Ok(content) => {
+                    let _ = this.update_in(cx, |this, window, cx| {
+                        let ed = if side_a { this.editor_a.clone() } else { this.editor_b.clone() };
+                        ed.update(cx, |ed, cx| ed.set_value(content, window, cx));
+                        this.recompute(cx);
+                        cx.notify();
+                    });
+                }
+                Err(e) => {
+                    let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("file");
+                    let _ = this.update_in(cx, |_this, window, cx| {
+                        window.push_notification(
+                            Notification::error(format!("Couldn't open {name}: {e}")),
+                            cx,
+                        );
+                    });
                 }
             }
         })
