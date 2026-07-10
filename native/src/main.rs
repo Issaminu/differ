@@ -13,7 +13,8 @@ mod perf_e2e;
 use std::borrow::Cow;
 
 use diff_view::{
-    ClearBoth, DiffView, NextChange, OpenFile, PrevChange, SwapSides, ToggleHistory, ToggleSync,
+    ClearBoth, DecreaseFontSize, DiffView, IncreaseFontSize, NextChange, OpenFile, PrevChange,
+    ResetFontSize, SwapSides, ToggleHistory, ToggleSync,
 };
 use gpui::{
     point, px, rgb, size, App, AppContext, Bounds, KeyBinding, TitlebarOptions, WindowBounds,
@@ -48,6 +49,10 @@ fn main() {
             KeyBinding::new("cmd-shift-k", ClearBoth, None),
             KeyBinding::new("cmd-shift-l", ToggleSync, None),
             KeyBinding::new("cmd-shift-y", ToggleHistory, None),
+            KeyBinding::new("cmd-=", IncreaseFontSize, None),
+            KeyBinding::new("cmd-+", IncreaseFontSize, None),
+            KeyBinding::new("cmd--", DecreaseFontSize, None),
+            KeyBinding::new("cmd-0", ResetFontSize, None),
         ]);
         cx.activate(true);
 

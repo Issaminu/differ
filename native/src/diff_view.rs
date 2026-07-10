@@ -38,7 +38,26 @@ const CHAR_ALPHA: u32 = 0x66;
 const RECOMPUTE_DEBOUNCE: Duration = Duration::from_millis(30);
 
 // Keyboard-dispatchable actions (bound in main.rs).
-gpui::actions!(differ, [NextChange, PrevChange, SwapSides, ClearBoth, OpenFile, ToggleSync, ToggleHistory]);
+gpui::actions!(
+    differ,
+    [
+        NextChange,
+        PrevChange,
+        SwapSides,
+        ClearBoth,
+        OpenFile,
+        ToggleSync,
+        ToggleHistory,
+        IncreaseFontSize,
+        DecreaseFontSize,
+        ResetFontSize
+    ]
+);
+
+/// Default editor font size in px, and the clamp bounds for zoom.
+const DEFAULT_FONT_SIZE: f32 = 13.0;
+const MIN_FONT_SIZE: f32 = 8.0;
+const MAX_FONT_SIZE: f32 = 32.0;
 
 // Language override cycle (None = auto-detect; "text" = plain text).
 const LANG_CYCLE: &[Option<&str>] = &[
@@ -65,6 +84,8 @@ pub struct DiffView {
     detected_language: &'static str,
     /// Manual language override (None = auto-detect).
     manual_language: Option<&'static str>,
+    /// Editor font size in px (Cmd-+/Cmd--/Cmd-0 to zoom).
+    font_size: f32,
     stats: (usize, usize),
     recompute_gen: u64,
     /// Line index of each change per side (aligned by index) + current cursor.
@@ -126,6 +147,7 @@ impl DiffView {
             language: "text",
             detected_language: "text",
             manual_language: None,
+            font_size: DEFAULT_FONT_SIZE,
             stats: (0, 0),
             recompute_gen: 0,
             changes_a: Vec::new(),
@@ -224,6 +246,15 @@ impl DiffView {
         let cur = LANG_CYCLE.iter().position(|&x| x == self.manual_language).unwrap_or(0);
         self.manual_language = LANG_CYCLE[(cur + 1) % LANG_CYCLE.len()];
         self.apply_language(cx);
+        cx.notify();
+    }
+
+    /// Zoom the editor font by `delta` px, clamped; `None` resets to default.
+    fn adjust_font(&mut self, delta: Option<f32>, cx: &mut Context<Self>) {
+        self.font_size = match delta {
+            Some(d) => (self.font_size + d).clamp(MIN_FONT_SIZE, MAX_FONT_SIZE),
+            None => DEFAULT_FONT_SIZE,
+        };
         cx.notify();
     }
 
@@ -550,13 +581,14 @@ impl Render for DiffView {
             .child(Self::button("btn-clear", "Clear", secondary, fg).on_click(cx.listener(|this, _, window, cx| this.do_clear(window, cx))))
             .child(Self::button("btn-history", "History", secondary, fg).on_click(cx.listener(|this, _, _window, cx| this.toggle_history(cx))));
 
+        let font_size = px(self.font_size);
         let editors = div()
             .flex()
             .flex_row()
             .flex_1()
-            .child(Input::new(&self.editor_a).bordered(false).flex_1().h_full().text_size(px(13.0)).font_family(mono.clone()))
+            .child(Input::new(&self.editor_a).bordered(false).flex_1().h_full().text_size(font_size).font_family(mono.clone()))
             .child(self.render_change_map(cx))
-            .child(Input::new(&self.editor_b).bordered(false).flex_1().h_full().text_size(px(13.0)).font_family(mono));
+            .child(Input::new(&self.editor_b).bordered(false).flex_1().h_full().text_size(font_size).font_family(mono));
 
         let body = div().flex().flex_col().flex_1().child(toolbar).child(editors);
         let mut root = div()
@@ -568,6 +600,9 @@ impl Render for DiffView {
             .on_action(cx.listener(|this, _: &OpenFile, window, cx| this.do_open(window, cx)))
             .on_action(cx.listener(|this, _: &ToggleSync, window, cx| this.toggle_scroll_lock(window, cx)))
             .on_action(cx.listener(|this, _: &ToggleHistory, _w, cx| this.toggle_history(cx)))
+            .on_action(cx.listener(|this, _: &IncreaseFontSize, _w, cx| this.adjust_font(Some(1.0), cx)))
+            .on_action(cx.listener(|this, _: &DecreaseFontSize, _w, cx| this.adjust_font(Some(-1.0), cx)))
+            .on_action(cx.listener(|this, _: &ResetFontSize, _w, cx| this.adjust_font(None, cx)))
             .flex()
             .flex_row()
             .size_full()
