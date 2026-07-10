@@ -93,6 +93,14 @@ fn editor_a_len(cx: &mut VisualTestContext, view: &Entity<DiffView>) -> usize {
     cx.update(|_, app| view.read(app).editor_a().read(app).value().len())
 }
 
+fn value_a(cx: &mut VisualTestContext, view: &Entity<DiffView>) -> String {
+    cx.update(|_, app| view.read(app).editor_a().read(app).value().to_string())
+}
+
+fn value_b(cx: &mut VisualTestContext, view: &Entity<DiffView>) -> String {
+    cx.update(|_, app| view.read(app).editor_b().read(app).value().to_string())
+}
+
 #[gpui::test]
 fn e2e_typing_on_large_document_stays_stable(cx: &mut TestAppContext) {
     // ~8k lines, a handful of pre-existing differences on side B.
@@ -153,6 +161,54 @@ fn e2e_editing_side_b_registers_changes(cx: &mut TestAppContext) {
     type_into_b(&mut cx, &view, "// changed on B");
     let (_, changes_b) = change_counts(&mut cx, &view);
     assert!(changes_b > 0, "editing B should introduce a change on the B side");
+}
+
+#[gpui::test]
+fn e2e_swap_sides_swaps_content(cx: &mut TestAppContext) {
+    let (view, window) = open_diff(cx, "left\n", "right\n");
+    let mut cx = VisualTestContext::from_window(window.into(), cx);
+    assert_eq!(value_a(&mut cx, &view), "left\n");
+    assert_eq!(value_b(&mut cx, &view), "right\n");
+
+    cx.update(|window, app| view.update(app, |v, cx| v.swap_for_test(window, cx)));
+    cx.run_until_parked();
+
+    assert_eq!(value_a(&mut cx, &view), "right\n");
+    assert_eq!(value_b(&mut cx, &view), "left\n");
+}
+
+#[gpui::test]
+fn e2e_clear_empties_both(cx: &mut TestAppContext) {
+    let (view, window) = open_diff(cx, "aaa\n", "bbb\n");
+    let mut cx = VisualTestContext::from_window(window.into(), cx);
+    assert!(stats(&mut cx, &view).0 + stats(&mut cx, &view).1 > 0);
+
+    cx.update(|window, app| view.update(app, |v, cx| v.clear_for_test(window, cx)));
+    cx.run_until_parked();
+
+    assert_eq!(value_a(&mut cx, &view), "");
+    assert_eq!(value_b(&mut cx, &view), "");
+    assert_eq!(stats(&mut cx, &view), (0, 0));
+    assert_eq!(change_counts(&mut cx, &view), (0, 0));
+}
+
+#[gpui::test]
+fn e2e_language_override_cycle(cx: &mut TestAppContext) {
+    let src = "fn main() { let x = 1; }\n";
+    let (view, window) = open_diff(cx, src, src);
+    let mut cx = VisualTestContext::from_window(window.into(), cx);
+    assert_eq!(cx.update(|_, app| view.read(app).manual_language()), None);
+
+    // First cycle past Auto lands on Plain Text ("text"), which drives the
+    // effective language and disables highlighting.
+    cx.update(|_, app| view.update(app, |v, cx| v.cycle_language_for_test(cx)));
+    assert_eq!(cx.update(|_, app| view.read(app).manual_language()), Some("text"));
+    assert_eq!(cx.update(|_, app| view.read(app).language()), "text");
+
+    // Next cycle lands on Rust.
+    cx.update(|_, app| view.update(app, |v, cx| v.cycle_language_for_test(cx)));
+    assert_eq!(cx.update(|_, app| view.read(app).manual_language()), Some("rust"));
+    assert_eq!(cx.update(|_, app| view.read(app).language()), "rust");
 }
 
 #[gpui::test]

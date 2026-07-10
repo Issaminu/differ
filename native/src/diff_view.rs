@@ -521,6 +521,33 @@ impl DiffView {
     pub(crate) fn change_counts(&self) -> (usize, usize) {
         (self.changes_a.len(), self.changes_b.len())
     }
+
+    /// Effective (manual-or-detected) language of the last applied diff.
+    #[cfg(test)]
+    pub(crate) fn language(&self) -> &'static str {
+        self.language
+    }
+
+    /// Current manual language override (None = auto-detect).
+    #[cfg(test)]
+    pub(crate) fn manual_language(&self) -> Option<&'static str> {
+        self.manual_language
+    }
+
+    #[cfg(test)]
+    pub(crate) fn swap_for_test(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.do_swap(window, cx);
+    }
+
+    #[cfg(test)]
+    pub(crate) fn clear_for_test(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.do_clear(window, cx);
+    }
+
+    #[cfg(test)]
+    pub(crate) fn cycle_language_for_test(&mut self, cx: &mut Context<Self>) {
+        self.cycle_language(cx);
+    }
 }
 
 /// Map tint spans to editor highlight styles. `base` is a 0xRRGGBB colour;
