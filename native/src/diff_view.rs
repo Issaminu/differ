@@ -147,7 +147,9 @@ impl DiffView {
             language: "text",
             detected_language: "text",
             manual_language: None,
-            font_size: DEFAULT_FONT_SIZE,
+            font_size: history_store::load_font_size()
+                .map(|s| s.clamp(MIN_FONT_SIZE, MAX_FONT_SIZE))
+                .unwrap_or(DEFAULT_FONT_SIZE),
             stats: (0, 0),
             recompute_gen: 0,
             changes_a: Vec::new(),
@@ -255,6 +257,7 @@ impl DiffView {
             Some(d) => (self.font_size + d).clamp(MIN_FONT_SIZE, MAX_FONT_SIZE),
             None => DEFAULT_FONT_SIZE,
         };
+        history_store::save_font_size(self.font_size);
         cx.notify();
     }
 
