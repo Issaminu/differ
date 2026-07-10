@@ -16,6 +16,7 @@ gpui_platform = { git = "https://github.com/zed-industries/zed", rev = "35ffa8f4
 # the editor so diff tints render inside the editor (no overlay). tree-sitter-
 # languages pulls in all grammars for multi-language auto-detection.
 gpui-component = { path = "../vendor/gpui-component/crates/ui", features = ["tree-sitter-languages"] }
+gpui-component-assets = { path = "../vendor/gpui-component/crates/assets" }
 differ-core = { path = "../crates/differ-core" }
 
 # Test-only: enable gpui's test-support so the e2e keystroke harness

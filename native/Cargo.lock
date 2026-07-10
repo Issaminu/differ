@@ -1342,6 +1342,7 @@ dependencies = [
  "differ-core",
  "gpui",
  "gpui-component",
+ "gpui-component-assets",
  "gpui_platform",
 ]
 

@@ -53,7 +53,9 @@ fn bench_docs() -> Option<(String, String)> {
 }
 
 fn main() {
-    let app = gpui_platform::application();
+    // `with_assets` lets gpui-component's `Icon`/`IconName` resolve its bundled
+    // SVG icons (embedded via rust-embed) — needed for the toolbar icons.
+    let app = gpui_platform::application().with_assets(gpui_component_assets::Assets);
     app.run(|cx: &mut App| {
         gpui_component::init(cx);
         // Bundle plain JetBrains Mono so it resolves by name regardless of what

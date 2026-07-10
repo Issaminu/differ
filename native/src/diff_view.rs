@@ -24,7 +24,7 @@ use gpui::{
 };
 use gpui_component::input::{Input, InputEvent, InputState};
 use gpui_component::notification::Notification;
-use gpui_component::{ActiveTheme, WindowExt};
+use gpui_component::{ActiveTheme, Icon, IconName, WindowExt};
 
 const ADDED: u32 = 0x3fb950;
 const REMOVED: u32 = 0xf85149;
@@ -573,8 +573,20 @@ impl DiffView {
             .child(ticks)
     }
 
-    fn button(id: &'static str, label: &str, bg: Hsla, fg: Hsla) -> Stateful<Div> {
-        div().id(id).flex_none().px_2().py_1().rounded_md().bg(bg).text_color(fg).cursor_pointer().child(label.to_string())
+    /// A square, icon-only toolbar button with a subtle hover wash.
+    fn icon_btn(id: &'static str, icon: IconName, color: Hsla) -> Stateful<Div> {
+        div()
+            .id(id)
+            .flex()
+            .items_center()
+            .justify_center()
+            .flex_none()
+            .size(px(28.0))
+            .rounded_md()
+            .cursor_pointer()
+            .text_color(color)
+            .hover(|s| s.bg(rgba(0xffffff14)))
+            .child(Icon::new(icon).text_color(color).size(px(15.0)))
     }
 
     fn render_drawer(&self, cx: &mut Context<Self>) -> Div {
@@ -699,43 +711,74 @@ impl Render for DiffView {
         let _s = crate::perf::span("render_build");
         let (added, removed) = self.stats;
         let language = self.language;
-        let (bg, bar, border, fg, muted, secondary, mono) = {
+        let (bg, bar, border, fg, muted, accent, mono) = {
             let t = cx.theme();
-            (t.background, t.title_bar, t.border, t.foreground, t.muted_foreground, t.secondary, t.mono_font_family.clone())
+            (t.background, t.title_bar, t.border, t.foreground, t.muted_foreground, t.accent, t.mono_font_family.clone())
         };
+
+        // Language chip: "Auto · <lang>" when detecting, else the manual choice.
+        let lang_label = if self.manual_language.is_none() {
+            format!("Auto · {language}")
+        } else {
+            language.to_string()
+        };
+        let lang_pill = div()
+            .id("btn-lang")
+            .flex()
+            .items_center()
+            .flex_none()
+            .px_2()
+            .py(px(3.0))
+            .rounded_md()
+            .cursor_pointer()
+            .text_color(muted)
+            .text_size(px(12.0))
+            .hover(|s| s.bg(rgba(0xffffff14)).text_color(fg))
+            .child(lang_label)
+            .on_click(cx.listener(|this, _, _w, cx| this.cycle_language(cx)));
+
+        // Centered change stepper: ˄ prev · +N −M · ˅ next.
+        let change_cluster = div()
+            .flex()
+            .flex_row()
+            .items_center()
+            .gap_1()
+            .flex_none()
+            .child(Self::icon_btn("btn-prev", IconName::ChevronUp, muted).on_click(cx.listener(|this, _, _w, cx| this.goto_change(-1, cx))))
+            .child(div().px_1().text_size(px(12.0)).text_color(rgb(ADDED)).child(format!("+{added}")))
+            .child(div().text_size(px(12.0)).text_color(rgb(REMOVED)).child(format!("−{removed}")))
+            .child(Self::icon_btn("btn-next", IconName::ChevronDown, muted).on_click(cx.listener(|this, _, _w, cx| this.goto_change(1, cx))));
+
+        // Right-aligned utilities.
+        let sync_icon = if self.scroll_lock { IconName::Lock } else { IconName::LockOpen };
+        let sync_color = if self.scroll_lock { accent } else { muted };
+        let utilities = div()
+            .flex()
+            .flex_row()
+            .items_center()
+            .gap_1()
+            .flex_none()
+            .child(Self::icon_btn("btn-swap", IconName::Replace, muted).on_click(cx.listener(|this, _, window, cx| this.do_swap(window, cx))))
+            .child(Self::icon_btn("btn-lock", sync_icon, sync_color).on_click(cx.listener(|this, _, window, cx| this.toggle_scroll_lock(window, cx))))
+            .child(Self::icon_btn("btn-open", IconName::FolderOpen, muted).on_click(cx.listener(|this, _, window, cx| this.do_open(window, cx))))
+            .child(Self::icon_btn("btn-history", IconName::History, if self.history_open { accent } else { muted }).on_click(cx.listener(|this, _, _w, cx| this.toggle_history(cx))));
 
         let toolbar = div()
             .flex()
             .flex_row()
             .items_center()
-            .gap_3()
             .flex_none()
-            .h(px(38.0))
-            .pl(px(76.0)) // clear the macOS traffic lights (overlay titlebar)
-            .pr(px(12.0))
+            .h(px(44.0))
+            .pl(px(84.0)) // clear the macOS traffic lights (overlay titlebar)
+            .pr(px(10.0))
             .bg(bar)
             .border_b_1()
             .border_color(border)
-            .text_color(muted)
-            .text_size(px(12.0))
-            .child({
-                let label = if self.manual_language.is_none() {
-                    format!("{language} · auto")
-                } else {
-                    language.to_string()
-                };
-                Self::button("btn-lang", &label, secondary, fg).on_click(cx.listener(|this, _, _w, cx| this.cycle_language(cx)))
-            })
-            .child(div().text_color(rgb(ADDED)).child(format!("+{added}")))
-            .child(div().text_color(rgb(REMOVED)).child(format!("−{removed}")))
-            .child(Self::button("btn-prev", "◀", secondary, fg).on_click(cx.listener(|this, _, _window, cx| this.goto_change(-1, cx))))
-            .child(Self::button("btn-next", "▶", secondary, fg).on_click(cx.listener(|this, _, _window, cx| this.goto_change(1, cx))))
+            .child(lang_pill)
             .child(div().flex_1())
-            .child(Self::button("btn-open", "Open", secondary, fg).on_click(cx.listener(|this, _, window, cx| this.do_open(window, cx))))
-            .child(Self::button("btn-lock", if self.scroll_lock { "Sync ●" } else { "Sync ○" }, secondary, fg).on_click(cx.listener(|this, _, window, cx| this.toggle_scroll_lock(window, cx))))
-            .child(Self::button("btn-swap", "Swap", secondary, fg).on_click(cx.listener(|this, _, window, cx| this.do_swap(window, cx))))
-            .child(Self::button("btn-clear", "Clear", secondary, fg).on_click(cx.listener(|this, _, window, cx| this.do_clear(window, cx))))
-            .child(Self::button("btn-history", "History", secondary, fg).on_click(cx.listener(|this, _, _window, cx| this.toggle_history(cx))));
+            .child(change_cluster)
+            .child(div().flex_1())
+            .child(utilities);
 
         let font_size = px(self.font_size);
         let editors = div()
