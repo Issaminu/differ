@@ -10,7 +10,7 @@
 // and lightly debounced, so typing never blocks on big documents.
 
 use std::ops::Range;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use crate::history_store;
 use differ_core::{
@@ -92,6 +92,9 @@ pub struct DiffView {
     recompute_gen: u64,
     /// Debounce guard for off-hot-path history capture (see schedule_history_capture).
     history_gen: u64,
+    /// Frame-bench state (DIFFER_FRAMEBENCH): remaining frames + last frame time.
+    frame_bench_left: usize,
+    frame_last: Option<Instant>,
     /// Line index of each change per side (aligned by index) + current cursor.
     changes_a: Vec<u32>,
     changes_b: Vec<u32>,
@@ -157,6 +160,8 @@ impl DiffView {
             stats: (0, 0),
             recompute_gen: 0,
             history_gen: 0,
+            frame_bench_left: 0,
+            frame_last: None,
             changes_a: Vec::new(),
             changes_b: Vec::new(),
             current_change: 0,
@@ -173,7 +178,44 @@ impl DiffView {
         };
         view.recompute(cx);
         view.maybe_start_stress(window, cx);
+        view.maybe_start_frame_bench(window, cx);
         view
+    }
+
+    /// Headful paint benchmark: when `DIFFER_FRAMEBENCH=<n>` is set, force `n`
+    /// continuous re-renders (each `notify` repaints the editors) and record the
+    /// achieved frame period. This isolates GPUI layout+paint cost — the part
+    /// `render_build` (element-tree construction only) doesn't capture — so we
+    /// can see whether a huge, tint-heavy document slows the actual paint.
+    fn maybe_start_frame_bench(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(frames) = std::env::var("DIFFER_FRAMEBENCH")
+            .ok()
+            .and_then(|s| s.parse::<usize>().ok())
+        else {
+            return;
+        };
+        eprintln!("[framebench] measuring {frames} frames");
+        self.frame_bench_left = frames;
+        self.frame_last = None;
+        self.schedule_frame_tick(window, cx);
+    }
+
+    fn schedule_frame_tick(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        cx.on_next_frame(window, |this, window, cx| {
+            let now = Instant::now();
+            if let Some(last) = this.frame_last {
+                crate::perf::record("frame_period", now.duration_since(last));
+            }
+            this.frame_last = Some(now);
+            this.frame_bench_left = this.frame_bench_left.saturating_sub(1);
+            if this.frame_bench_left == 0 {
+                crate::perf::report();
+                cx.quit();
+                return;
+            }
+            cx.notify(); // mark dirty so the editors actually repaint next frame
+            this.schedule_frame_tick(window, cx);
+        });
     }
 
     /// Headful perf harness: when `DIFFER_STRESS=<n>` is set, auto-type `n`
